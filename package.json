@@ -21,6 +21,7 @@
   },
   "homepage": "https://github.com/sumit783/brookshow-backend#readme",
   "dependencies": {
+    "@supabase/supabase-js": "^2.80.0",
     "bcryptjs": "^3.0.2",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",

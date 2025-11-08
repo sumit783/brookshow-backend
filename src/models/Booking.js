@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 const bookingSchema = new mongoose.Schema(
   {
     clientId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    artistProfileId: { type: mongoose.Schema.Types.ObjectId, ref: "ArtistProfile" },
+    artistId: { type: mongoose.Schema.Types.ObjectId, ref: "Artist" },
     serviceId: { type: mongoose.Schema.Types.ObjectId, ref: "Service" },
     eventId: { type: mongoose.Schema.Types.ObjectId, ref: "Event", default: null },
     source: { type: String, enum: ["user", "planner", "offline"], default: "user" },
@@ -11,8 +11,7 @@ const bookingSchema = new mongoose.Schema(
     endAt: Date,
     totalPrice: Number,
     status: { type: String, enum: ["pending", "confirmed", "completed", "cancelled"], default: "pending" },
-    paymentStatus: { type: String, enum: ["unpaid", "authorized", "paid", "refunded"], default: "unpaid" },
-    notes: String,
+    paymentStatus: { type: String, enum: ["unpaid", "authorized", "paid", "refunded"], default: "unpaid" }
   },
   { timestamps: true }
 );
