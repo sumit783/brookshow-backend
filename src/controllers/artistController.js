@@ -1,0 +1,234 @@
+import Artist from "../models/Artist.js";
+import User from "../models/User.js";
+import fs from "fs";
+import MediaItem from "../models/MediaItem.js";
+import Category from "../models/Category.js";
+import Service from "../models/Service.js";
+
+function getBodyField(value) {
+  if (typeof value === "string") {
+    try { return JSON.parse(value); } catch { return value; }
+  }
+  return value;
+}
+
+// Create Artist Profile
+export const createArtistProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { bio, city, state, country } = req.body;
+    const location = { city, state, country };
+    let _category = req.body.category;
+    // Accept array or comma-separated string
+    let categories = Array.isArray(_category)
+      ? _category
+      : (typeof _category === 'string' ? _category.split(',').map(x => x.trim()).filter(Boolean) : []);
+    
+    // Fetch active categories from database
+    const activeCategories = await Category.find({ isActive: true }).select("name");
+    const allowedCats = activeCategories.map(cat => cat.name);
+    categories = categories.filter(x => allowedCats.includes(x));
+    
+    let eventPricing = req.body.eventPricing;
+    if (typeof eventPricing === 'string') {
+      try { eventPricing = JSON.parse(eventPricing); } catch { eventPricing = {}; }
+    }
+    if (!bio || categories.length === 0) {
+      return res.status(400).json({ message: 'bio and at least one category are required' });
+    }
+    const profileImage = req.files['profileImage']?.[0] ? "/uploads/" + req.files['profileImage'][0].filename : "";
+    const artist = await Artist.create({
+      userId,
+      profileImage,
+      bio,
+      category: categories,
+      location,
+      eventPricing: eventPricing || {},
+    });
+
+    // Create or update services based on eventPricing
+    if (eventPricing) {
+      for (const categoryName of categories) {
+        if (eventPricing[categoryName]) {
+          const serviceData = eventPricing[categoryName];
+          await Service.create({
+            artistId: artist._id,
+            category: categoryName,
+            unit: serviceData.unit || "day", 
+            price_for_user: serviceData.userPrice,
+            price_for_planner: serviceData.eventPlannerPrice,
+            advance: serviceData.advance,
+          });
+        }
+      }
+    }
+
+    return res.status(201).json({ success: true, message: 'Artist profile created', artist });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+// Update Artist Profile (by logged-in user)
+export const updateArtistProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const updates = {};
+    const { bio } = req.body;
+    if (bio !== undefined) updates.bio = bio;
+    let _category = req.body.category;
+    if (_category !== undefined) {
+      let categories = Array.isArray(_category)
+        ? _category
+        : (typeof _category === 'string' ? _category.split(',').map(x => x.trim()).filter(Boolean) : []);
+      // Fetch active categories from database
+      const activeCategories = await Category.find({ isActive: true }).select("name");
+      const allowedCats = activeCategories.map(cat => cat.name);
+      updates.category = categories.filter(x => allowedCats.includes(x));
+    }
+    if (req.body.eventPricing !== undefined) {
+      try { updates.eventPricing = typeof req.body.eventPricing === 'string' ? JSON.parse(req.body.eventPricing) : req.body.eventPricing; } catch { updates.eventPricing = {}; }
+    }
+    if (req.body.location !== undefined) updates.location = getBodyField(req.body.location);
+    if (req.files['profileImage']) updates.profileImage = "/uploads/" + req.files['profileImage'][0].filename;
+    const artist = await Artist.findOne({ userId });
+    if (!artist) return res.status(404).json({ message: 'Artist profile not found for user' });
+
+    // Update or create services based on eventPricing
+    if (updates.eventPricing) {
+      for (const categoryName of updates.category || artist.category) {
+        if (updates.eventPricing[categoryName]) {
+          const serviceData = updates.eventPricing[categoryName];
+          await Service.findOneAndUpdate(
+            { artistProfileId: artist._id, category: categoryName },
+            {
+              unit: serviceData.unit || "day",
+              price_for_user: serviceData.price_for_user,
+              price_for_planner: serviceData.price_for_planner,
+              advance: serviceData.advance,
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+          );
+        }
+      }
+      // Clear eventPricing from the artist profile itself after processing
+      updates.eventPricing = undefined;
+    }
+
+    Object.assign(artist, updates);
+    await artist.save();
+    return res.status(200).json({ success: true, message: 'Artist profile updated', artist });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+// Get Artist Profile (for current user)
+export const getArtistProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const artist = await Artist.findOne({ userId }).lean().populate("userId");
+    if (!artist || !artist.userId) return res.status(404).json({ message: 'Artist profile not found for user' });
+    const exclude = (({ eventPricing, bookings, wallet, calendar, ...obj }) => obj);
+    const artistData = exclude(artist);
+    const media = await MediaItem.find({ ownerType: "artist", ownerId: artist._id });
+    return res.status(200).json({ success: true, ...artistData, media });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// List all media for current artist
+export const listArtistMedia = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const artist = await Artist.findOne({ userId }).select("_id");
+    if (!artist) return res.status(404).json({ message: 'Artist profile not found for user' });
+    const media = await MediaItem.find({ ownerType: 'artist', ownerId: artist._id }).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, items: media });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Delete Artist Profile (for user)
+export const deleteArtistProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const artist = await Artist.findOne({ userId });
+    if (!artist) return res.status(404).json({ message: 'Artist profile not found for user' });
+    // Optionally: delete uploaded files from disk (
+    [artist.profileImage, ...(artist.photos || []), ...(artist.videos || [])].forEach(f => {
+      if (f && f.startsWith("/uploads/")) {
+        fs.existsSync('.' + f) && fs.unlinkSync('.' + f);
+      }
+    });
+    await Artist.deleteOne({ userId });
+    await User.findByIdAndUpdate(userId, { $unset: { artistProfile: 1 } });
+    return res.status(204).send();
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Upload photos/videos for artist
+export const uploadArtistMedia = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const artist = await Artist.findOne({ userId });
+    if (!artist) return res.status(404).json({ message: 'Artist profile not found for user' });
+    const files = [ ...(req.files["photos"] || []), ...(req.files["videos"] || []) ];
+    if (!files.length) return res.status(400).json({ message: 'No files uploaded' });
+    const items = await Promise.all(
+      files.map(async (f) => {
+        const type = f.mimetype.startsWith("video") ? "video" : "image";
+        const media = await MediaItem.create({
+          ownerType: "artist",
+          ownerId: artist._id,
+          type,
+          url: "/uploads/" + f.filename
+        });
+        return media;
+      })
+    );
+    return res.status(201).json({ message: "Media uploaded", items });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Delete photo/video MediaItem by ID
+export const deleteArtistMedia = async (req, res) => {
+  try {
+    const itemId = req.params.id;
+    const userId = req.user.id;
+    const artist = await Artist.findOne({ userId });
+    if (!artist) return res.status(404).json({ message: 'Artist profile not found for user' });
+    const item = await MediaItem.findById(itemId);
+    if (!item || item.ownerType !== "artist" || String(item.ownerId) !== String(artist._id)) {
+      return res.status(404).json({ message: 'No such media item for your artist profile' });
+    }
+    const filePath = "." + item.url;
+    if (item.url && filePath.startsWith("./uploads/") && require('fs').existsSync(filePath)) {
+      require('fs').unlinkSync(filePath);
+    }
+    await item.deleteOne();
+    return res.status(204).send();
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Get active categories for artist selection
+export const listCategories = async (req, res) => {
+  try {
+    const { activeOnly } = req.query;
+    const filter = activeOnly === "true" ? { isActive: true } : {};
+    const arrayOfCategories = [];
+    const categories = await Category.find(filter).sort({ name: 1 }).select("name -_id");
+    categories.forEach(category => arrayOfCategories.push(category.name));
+    return res.status(200).json({ categories: arrayOfCategories });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message, error: err.message });
+  }
+};
