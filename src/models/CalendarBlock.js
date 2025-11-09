@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const calendarBlockSchema = new mongoose.Schema(
   {
-    artistProfileId: { type: mongoose.Schema.Types.ObjectId, ref: "ArtistProfile" },
+    artistId: { type: mongoose.Schema.Types.ObjectId, ref: "Artist" },
     startDate: Date,
     endDate: Date,
     type: { type: String, enum: ["busy", "offlineBooking", "onlineBooking"] },

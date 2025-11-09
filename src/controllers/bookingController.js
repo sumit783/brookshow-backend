@@ -1,17 +1,30 @@
 import Booking from "../models/Booking.js";
 import CalendarBlock from "../models/CalendarBlock.js";
+import Artist from "../models/Artist.js";
+import mongoose from "mongoose";
 
 export const createOfflineBooking = async (req, res) => {
   try {
-    const { artistProfileId, serviceId, startAt, endAt, totalPrice, notes } = req.body;
+    // Get user ID from JWT token
+    const userId = req.user.id || req.user.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "User ID not found in token" });
+    }
+
+    // Find the artist associated with this user
+    const artist = await Artist.findOne({ userId });
+    if (!artist) {
+      return res.status(404).json({ success: false, message: "Artist profile not found for this user" });
+    }
+
+    const { serviceId, startAt, endAt, totalPrice } = req.body;
 
     const newBooking = new Booking({
-      artistProfileId,
+      artistId: artist._id,
       serviceId,
       startAt,
       endAt,
       totalPrice,
-      notes,
       source: "offline",
       status: "confirmed", 
       paymentStatus: "unpaid", 
@@ -21,13 +34,13 @@ export const createOfflineBooking = async (req, res) => {
 
     // Create a calendar block for the offline booking
     const newCalendarBlock = new CalendarBlock({
-      artistProfileId: savedBooking.artistProfileId,
+      artistId: artist._id,
       startDate: savedBooking.startAt,
       endDate: savedBooking.endAt,
       type: "offlineBooking",
-      title: `Offline Booking for ${savedBooking._id}`,
+      title: `Offline Booking`,
       linkedBookingId: savedBooking._id,
-      createdBy: req.user.userId, // Assuming user ID is available from verifyToken middleware
+      createdBy: userId,
     });
     await newCalendarBlock.save();
 
@@ -39,8 +52,33 @@ export const createOfflineBooking = async (req, res) => {
 
 export const getAllBookings = async (req, res) => {
   try {
-    const bookings = await Booking.find({}).populate("artistProfileId clientId serviceId eventId");
+    const bookings = await Booking.find({}).populate("artistId clientId serviceId eventId");
     res.status(200).json({ success: true, bookings });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getBookingById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Validate MongoDB ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid booking ID format" });
+    }
+
+    const booking = await Booking.findById(id)
+      .populate("artistId")
+      .populate("clientId")
+      .populate("serviceId")
+      .populate("eventId");
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+
+    res.status(200).json({ success: true, booking });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

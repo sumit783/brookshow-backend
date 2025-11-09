@@ -1,6 +1,7 @@
 // src/app.js
 import express from "express";
 import cors from "cors";
+import { corsOptions } from "./cors.js"
 import helmet from "helmet";
 import morgan from "morgan";
 import compression from "compression";
@@ -17,6 +18,7 @@ import plannerRoutes from "./routes/plannerRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import bookingRoutes from "./routes/bookingRoutes.js";
 import serviceRoutes from "./routes/serviceRoutes.js";
+import calendarBlockRoutes from "./routes/calendarBlockRoutes.js";
 
 // All routes
 
@@ -46,7 +48,8 @@ app.use(
 
 // Global Middlewares
 app.use(helmet());
-app.use(cors({ origin: "*", credentials: true }));
+app.use(cors(corsOptions));
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -82,6 +85,7 @@ app.use("/api/planner", plannerRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/services", serviceRoutes);
+app.use("/api/calendar-blocks", calendarBlockRoutes);
 // app.use("/api/user",userRoutes)
 // app.use("/api/bookings", bookingRoutes);
 // app.use("/api/events", eventRoutes);
