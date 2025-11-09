@@ -8,31 +8,32 @@ import { dropLegacyArtistIndexes } from "./models/Artist.js";
 dotenv.config();
 
 const PORT = process.env.PORT || 5000;
+const MONGO_URI = process.env.MONGO_URI;
+const DB_NAME = process.env.DB_NAME || "brookshow";
 
-mongoose
-  .connect(process.env.MONGO_URI, {
-    dbName: process.env.DB_NAME || "brookshow",
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(async () => {
-    console.log("✅ MongoDB Connected");
+async function startServer() {
+  try {
+    // ✅ Connect to MongoDB before starting the server
+    await mongoose.connect(MONGO_URI, {
+      dbName: DB_NAME,
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
 
-    // Optional: add connection event listeners
-    mongoose.connection.on("error", (err) =>
-      console.error("❌ MongoDB runtime error:", err)
-    );
+    console.log(`✅ MongoDB connected to database: ${DB_NAME}`);
 
-    // Cleanup legacy indexes if needed
+    // Optional cleanup
     await dropLegacyArtistIndexes();
 
-    // 🧠 Start server *after* MongoDB connects
+    // Start server only after successful connection
     const server = http.createServer(app);
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
-  })
-  .catch((err) => {
-    console.error("❌ MongoDB Connection Error:", err.message);
+  } catch (err) {
+    console.error("❌ MongoDB connection error:", err.message);
     process.exit(1);
-  });
+  }
+}
+
+startServer();
