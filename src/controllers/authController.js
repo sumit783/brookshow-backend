@@ -60,12 +60,7 @@ export const registerUser = async (req, res) => {
         .json({ success: false, message: "Email or phone is required" });
     }
 
-    const existing = await User.findOne({
-      $or: [
-        email ? { email } : undefined,
-        phone ? { phone } : undefined,
-      ].filter(Boolean),
-    });
+    const existing = await User.findOne({email:email || null});
 
     if (existing) {
       return res
