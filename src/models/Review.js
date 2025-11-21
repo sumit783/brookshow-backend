@@ -2,12 +2,10 @@ import mongoose from "mongoose";
 
 const reviewSchema = new mongoose.Schema(
   {
-    bookingId: { type: mongoose.Schema.Types.ObjectId, ref: "Booking" },
-    artistProfileId: { type: mongoose.Schema.Types.ObjectId, ref: "ArtistProfile" },
+    artistId: { type: mongoose.Schema.Types.ObjectId, ref: "Artist" },
     clientId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     rating: Number,
-    title: String,
-    body: String,
+    message: String,
   },
   { timestamps: true }
 );

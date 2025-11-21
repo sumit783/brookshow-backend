@@ -19,6 +19,7 @@ import adminRoutes from "./routes/adminRoutes.js";
 import bookingRoutes from "./routes/bookingRoutes.js";
 import serviceRoutes from "./routes/serviceRoutes.js";
 import calendarBlockRoutes from "./routes/calendarBlockRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
 
 // All routes
 
@@ -86,7 +87,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/services", serviceRoutes);
 app.use("/api/calendar-blocks", calendarBlockRoutes);
-// app.use("/api/user",userRoutes)
+app.use("/api/user", userRoutes);
 // app.use("/api/bookings", bookingRoutes);
 // app.use("/api/events", eventRoutes);
 // app.use("/api/users", usersRoutes);
