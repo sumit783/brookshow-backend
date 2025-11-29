@@ -73,7 +73,6 @@ const limiter = rateLimit({
   max: 200, // limit each IP
 });
 app.use("/api", limiter);
-app.set('trust proxy', 1);
 
 // API Key verification middleware (global or per-route)
 app.use("/api", verifyXApiKey);

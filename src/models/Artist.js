@@ -102,7 +102,7 @@ export async function dropLegacyArtistIndexes() {
     }
   } catch (e) {
     if (e?.codeName !== "IndexNotFound") {
-      console.warn("⚠️ Could not drop legacy artists indexes:", e.message);
+      console.warn("Could not drop legacy artists indexes:", e.message);
     }
   }
 }
