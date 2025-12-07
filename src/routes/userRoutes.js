@@ -1,5 +1,5 @@
 import express from "express";
-import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById } from "../controllers/userController.js";
+import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, getTicketById } from "../controllers/userController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 
@@ -31,6 +31,12 @@ router.get("/artist/:id", checkApiKey, getArtistById);
 
 // Create or update review for an artist (requires authentication)
 router.post("/review", checkApiKey, verifyToken, createReview);
+
+// Buy ticket (requires authentication) - direct wallet update
+router.post("/buy-ticket", checkApiKey, verifyToken, buyTicket);
+
+// Get ticket details (requires authentication)
+router.get("/ticket/:id", checkApiKey, verifyToken, getTicketById);
 
 export default router;
 

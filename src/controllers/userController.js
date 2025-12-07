@@ -7,7 +7,10 @@ import Booking from "../models/Booking.js";
 import Event from "../models/Event.js";
 import TicketType from "../models/TicketType.js";
 import PlannerProfile from "../models/PlannerProfile.js";
+import Ticket from "../models/Ticket.js";
+import WalletTransaction from "../models/WalletTransaction.js";
 import mongoose from "mongoose";
+import QRCode from "qrcode";
 
 export const getTopArtists = async (req, res) => {
   try {
@@ -322,6 +325,9 @@ export const getSimilarArtists = async (req, res) => {
     // Process each similar artist to get the required data
     const formattedArtists = await Promise.all(
       similarArtists.map(async (artist) => {
+        // Determine which price field to use based on user role
+        const priceField = req.user?.role === "planner" ? "price_for_planner" : "price_for_user";
+
         // Get all services for this artist
         const services = await Service.find({ artistId: artist._id });
 
@@ -345,7 +351,7 @@ export const getSimilarArtists = async (req, res) => {
 
         // Get minimum price from all services
         const prices = services
-          .map((s) => s.price_for_user)
+          .map((s) => s[priceField])
           .filter((price) => price != null && price > 0);
         const price = prices.length > 0 ? Math.min(...prices) : 0;
 
@@ -954,3 +960,155 @@ export const getEventById = async (req, res) => {
   }
 };
 
+
+export const buyTicket = async (req, res) => {
+  try {
+    const { ticketTypeId, quantity, buyerName, buyerPhone } = req.body;
+    const userId = req.user?.id || req.user?.userId;
+
+    // Validate required fields
+    if (!ticketTypeId) {
+      return res.status(400).json({ success: false, message: "Ticket Type ID is required" });
+    }
+
+    if (!quantity || quantity <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid quantity" });
+    }
+
+    if (!buyerName || !buyerPhone) {
+      return res.status(400).json({ success: false, message: "Buyer name and phone are required" });
+    }
+
+    // Validate MongoDB ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(ticketTypeId)) {
+      return res.status(400).json({ success: false, message: "Invalid ticket type ID format" });
+    }
+
+    // Find the ticket type
+    const ticketType = await TicketType.findById(ticketTypeId);
+    if (!ticketType) {
+      return res.status(404).json({ success: false, message: "Ticket type not found" });
+    }
+
+    // Check availability
+    if (ticketType.sold + quantity > ticketType.quantity) {
+      return res.status(400).json({ success: false, message: "Not enough tickets available" });
+    }
+
+    // Find the event to get planner profile
+    const event = await Event.findById(ticketType.eventId);
+    if (!event) {
+      return res.status(404).json({ success: false, message: "Event associated with ticket not found" });
+    }
+
+    // Find planner profile
+    const plannerProfile = await PlannerProfile.findById(event.plannerProfileId);
+    if (!plannerProfile) {
+      return res.status(404).json({ success: false, message: "Planner profile not found" });
+    }
+
+    // Calculate total price
+    const totalPrice = ticketType.price * quantity;
+
+    // Create the ticket instance (don't save yet)
+    const ticket = new Ticket({
+      ticketTypeId: ticketType._id,
+      eventId: event._id,
+      buyerName,
+      buyerPhone,
+      persons: quantity,
+      scannedPersons: 0,
+      isValide: true,
+      issuedAt: new Date()
+    });
+
+    // Generate QR Data content and URL
+    const qrPayload = {
+      ticketId: ticket._id,
+      eventId: event._id,
+      buyerName,
+      quantity,
+      timestamp: Date.now()
+    };
+    
+    ticket.qrPayload = qrPayload;
+    
+    // Generate QR Code
+    try {
+      ticket.qrDataUrl = await QRCode.toDataURL(JSON.stringify(qrPayload));
+    } catch (qrError) {
+      console.error("QR Code generation failed:", qrError);
+      // Decide if we should fail the whole transaction or proceed without QR
+      // For now, let's proceed but maybe log it. Or fail? 
+      // User requested "create qr code", so failure to create it should probably be an error.
+      throw new Error("Failed to generate ticket QR code");
+    }
+
+    // Save the ticket
+    await ticket.save();
+
+    // Update ticket type sold count
+    ticketType.sold += quantity;
+    await ticketType.save();
+
+    // Update planner's wallet balance
+    plannerProfile.walletBalance += totalPrice;
+    await plannerProfile.save();
+
+    // Create wallet transaction record
+    await WalletTransaction.create({
+      ownerId: plannerProfile.userId, // Using the user ID of the planner
+      ownerType: "planner",
+      type: "credit",
+      amount: totalPrice,
+      source: "booking", // Using booking as closest match
+      referenceId: ticket._id.toString(),
+      description: `Ticket sale for ${event.title} (${quantity} qty)`,
+      status: "completed"
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Ticket purchased successfully",
+      ticket,
+      walletUpdated: true
+    });
+
+  } catch (error) {
+    console.error("Buy ticket error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getTicketById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid ticket ID format" });
+    }
+
+    const ticket = await Ticket.findById(id)
+      .populate({
+        path: "eventId",
+        select: "title startAt venue address city state lat lng plannerProfileId",
+        populate: {
+          path: "plannerProfileId",
+          select: "organization logoUrl"
+        }
+      })
+      .populate("ticketTypeId", "title price");
+
+    if (!ticket) {
+      return res.status(404).json({ success: false, message: "Ticket not found" });
+    }
+
+    return res.status(200).json({
+      success: true,
+      ticket
+    });
+  } catch (error) {
+    console.error("Get ticket error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

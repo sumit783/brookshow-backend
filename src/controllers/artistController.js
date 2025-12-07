@@ -4,6 +4,7 @@ import fs from "fs";
 import MediaItem from "../models/MediaItem.js";
 import Category from "../models/Category.js";
 import Service from "../models/Service.js";
+import Review from "../models/Review.js";
 
 function getBodyField(value) {
   if (typeof value === "string") {
@@ -230,5 +231,94 @@ export const listCategories = async (req, res) => {
     return res.status(200).json({ categories: arrayOfCategories });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message, error: err.message });
+  }
+};
+
+export const listAllArtists = async (req, res) => {
+  try {
+    const artists = await Artist.find().lean().populate("userId");
+
+    if (artists.length === 0) {
+      return res.status(200).json({ success: true, artists: [] });
+    }
+
+    const formattedArtists = await Promise.all(
+      artists.map(async (artist) => {
+        // Get all services for this artist
+        const services = await Service.find({ artistId: artist._id });
+
+        // Get service categories
+        const serviceCategories = services.map((s) => s.category).filter(Boolean);
+
+        // Get first service category as "category", fallback to first artist category
+        let category = "";
+        let specialties = [];
+
+        if (serviceCategories.length > 0) {
+          // Use first service category as "category"
+          category = serviceCategories[0];
+          // Remaining service categories as "specialties"
+          specialties = serviceCategories.slice(1);
+        } else if (artist.category && artist.category.length > 0) {
+          // Fallback to artist categories if no services
+          category = artist.category[0];
+          specialties = artist.category.slice(1);
+        }
+
+        // Get minimum price from all services, using price_for_planner
+        const prices = services
+          .map((s) => s.price_for_planner)
+          .filter((price) => price != null && price > 0);
+        const price = prices.length > 0 ? Math.min(...prices) : 0;
+
+        // Calculate rating from reviews using artistId (if reviews model is available)
+        let rating = 0;
+        // Assuming Review model is imported and used for rating calculation
+        const reviews = await Review.find({ artistId: artist._id });
+        if (reviews.length > 0) {
+          const totalRating = reviews.reduce((sum, review) => sum + (review.rating || 0), 0);
+          rating = totalRating / reviews.length;
+        }
+
+        // Format location
+        const location = artist.location
+          ? `${artist.location.city || ""}, ${artist.location.state || ""}`.trim().replace(/^,\s*|,\s*$/g, "")
+          : "";
+
+        // Get profile image URL
+        const image = artist.profileImage || "";
+
+        return {
+          id: artist._id,
+          name: artist.userId?.displayName || "Unknown Artist",
+          category: category || "",
+          rating: Math.round(rating * 10) / 10, // Round to 1 decimal place
+          location: location || "Location not specified",
+          image: image,
+          specialties: specialties.length > 0 ? specialties : [],
+          price: price,
+        };
+      })
+    );
+    return res.status(200).json({ success: true, artists: formattedArtists });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const getArtistDetailsById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const artist = await Artist.findById(id).lean().populate("userId");
+    if (!artist) return res.status(404).json({ message: "Artist not found" });
+
+    const media = await MediaItem.find({ ownerType: "artist", ownerId: artist._id });
+    const reviews = await Review.find({ artistId: artist._id }).populate("clientId", "displayName");
+    const exclude = (({ eventPricing, bookings, wallet, calendar, ...obj }) => obj);
+    const artistData = exclude(artist);
+
+    return res.status(200).json({ success: true, ...artistData, media, reviews });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
   }
 };

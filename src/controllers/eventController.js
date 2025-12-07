@@ -1,6 +1,7 @@
 import Event from "../models/Event.js";
 import PlannerProfile from "../models/PlannerProfile.js";
 import MediaItem from "../models/MediaItem.js";
+import TicketType from "../models/TicketType.js";
 
 async function getPlannerProfileIdForUser(userId) {
   const profile = await PlannerProfile.findOne({ userId }).select("_id");
@@ -61,7 +62,29 @@ export const listEvents = async (req, res) => {
     const ids = events.map(e => e._id);
     const covers = await MediaItem.find({ ownerType: "event", ownerId: { $in: ids }, isCover: true }).lean();
     const idToBanner = new Map(covers.map(c => [String(c.ownerId), c.url]));
-    const withBanners = events.map(e => ({ ...e, bannerUrl: idToBanner.get(String(e._id)) || "" }));
+
+    const ticketTypes = await TicketType.find({ eventId: { $in: ids } }).lean();
+    const eventIdToTickets = {};
+    ticketTypes.forEach(ticket => {
+      const eId = String(ticket.eventId);
+      if (!eventIdToTickets[eId]) {
+        eventIdToTickets[eId] = [];
+      }
+      eventIdToTickets[eId].push({
+        id: ticket._id,
+        eventId: ticket.eventId,
+        title: ticket.title,
+        price: ticket.price,
+        quantity: ticket.quantity,
+        sold: ticket.sold,
+      });
+    });
+
+    const withBanners = events.map(e => ({
+      ...e,
+      bannerUrl: idToBanner.get(String(e._id)) || "",
+      ticketData: eventIdToTickets[String(e._id)] || []
+    }));
     return res.status(200).json({ events: withBanners });
   } catch (err) {
     return res.status(500).json({ message: err.message });
@@ -79,7 +102,18 @@ export const getEventById = async (req, res) => {
     const event = await Event.findOne({ _id: id, plannerProfileId }).lean();
     if (!event) return res.status(404).json({ message: "Event not found" });
     const cover = await MediaItem.findOne({ ownerType: "event", ownerId: event._id, isCover: true }).lean();
-    return res.status(200).json({ event: { ...event, bannerUrl: cover?.url || "" } });
+
+    const ticketTypes = await TicketType.find({ eventId: event._id }).lean();
+    const ticketData = ticketTypes.map(ticket => ({
+      id: ticket._id,
+      eventId: ticket.eventId,
+      title: ticket.title,
+      price: ticket.price,
+      quantity: ticket.quantity,
+      sold: ticket.sold,
+    }));
+
+    return res.status(200).json({ event: { ...event, bannerUrl: cover?.url || "", ticketData } });
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }

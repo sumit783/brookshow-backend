@@ -2,11 +2,15 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile } from "../controllers/plannerController.js";
+import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions } from "../controllers/plannerController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import { createEvent, listEvents, getEventById, updateEvent, deleteEvent, getEventAndId } from "../controllers/eventController.js";
 import { createTicketType, listTicketTypes, getTicketTypeById, updateTicketType, deleteTicketType } from "../controllers/ticketController.js";
+import { listAllArtists, getArtistDetailsById } from "../controllers/artistController.js";
+import { checkArtistAvailability } from "../controllers/userController.js";
+import { getSimilarArtists } from "../controllers/userController.js";
+import { createEmployee, listEmployees, getEmployeeById, updateEmployee, deleteEmployee, verifyTicket } from "../controllers/plannerController.js";
 
 const router = express.Router();
 
@@ -48,11 +52,33 @@ router.get("/events/id", checkApiKey, verifyToken, getEventAndId);
 router.put("/events/:id", checkApiKey, verifyToken, uploadMiddleware.single("banner"), updateEvent);
 router.delete("/events/:id", checkApiKey, verifyToken, deleteEvent);
 
+// Artist Routes for planners
+router.get("/artists", checkApiKey, verifyToken, listAllArtists);
+router.get("/artists/:id", checkApiKey, verifyToken, getArtistDetailsById);
+
+router.get("/artists/check-availability", checkApiKey, verifyToken, checkArtistAvailability);
+
+router.get("/artists/:id/similar", checkApiKey, verifyToken, getSimilarArtists);
+
 // Ticket Types CRUD for planners
 router.post("/tickets", checkApiKey, verifyToken, createTicketType);
 router.get("/tickets", checkApiKey, verifyToken, listTicketTypes);
 router.get("/tickets/:id", checkApiKey, verifyToken, getTicketTypeById);
 router.put("/tickets/:id", checkApiKey, verifyToken, updateTicketType);
 router.delete("/tickets/:id", checkApiKey, verifyToken, deleteTicketType);
+
+// Planner Wallet and Transactions
+router.get("/wallet", checkApiKey, verifyToken, getPlannerWallet);
+router.get("/transactions", checkApiKey, verifyToken, listPlannerTransactions);
+
+// Employee Management
+router.post("/employees", checkApiKey, verifyToken, createEmployee);
+router.get("/employees", checkApiKey, verifyToken, listEmployees);
+router.get("/employees/:id", checkApiKey, verifyToken, getEmployeeById);
+router.put("/employees/:id", checkApiKey, verifyToken, updateEmployee);
+router.delete("/employees/:id", checkApiKey, verifyToken, deleteEmployee);
+
+// Ticket Verification
+router.post("/verify-ticket", checkApiKey, verifyToken, verifyTicket);
 
 export default router;
