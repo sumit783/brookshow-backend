@@ -1133,44 +1133,154 @@ export const createArtistBooking = async (req, res) => {
 
 export const getArtistPrice = async (req, res) => {
   try {
-    const { artistId, serviceId, startDate, endDate } = req.query;
-    // if (!mongoose.Types.ObjectId.isValid(artistId) || !mongoose.Types.ObjectId.isValid(serviceId)) {
-    //   return res.status(400).json({ success: false, message: "Invalid artistId or serviceId" });
-    // }
+    // Get artistId from route params (URL path)
+    const { artistId } = req.params;
+    
+    // Get other parameters from query string
+    const { serviceId, startDate, endDate } = req.query;
+
+    // Validate required fields
+    if (!artistId) {
+      return res.status(400).json({ success: false, message: "artistId is required" });
+    }
+
+    if (!serviceId) {
+      return res.status(400).json({ success: false, message: "serviceId is required" });
+    }
+
     if (!startDate || !endDate) {
       return res.status(400).json({ success: false, message: "startDate and endDate are required" });
     }
-    // Find service by ID first
-    let service = await Service.findById(serviceId);
-    if (!service) {
-      console.log("service",service)
-      // Fallback: try finding by both serviceId and artistId (in case of mismatched IDs)
-      service = await Service.findOne({ _id: serviceId, artistId });
-      if (!service) {
-        return res.status(404).json({ success: false, message: "Service not found" });
-      }
+
+    // Validate MongoDB ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(artistId)) {
+      return res.status(400).json({ success: false, message: "Invalid artistId format" });
     }
-    // Verify the service belongs to the requested artist
-    if (service.artistId?.toString() !== artistId) {
+
+    if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+      return res.status(400).json({ success: false, message: "Invalid serviceId format" });
+    }
+
+    // Find service by both serviceId and artistId to ensure it belongs to the artist
+    const service = await Service.findOne({ 
+      _id: serviceId, 
+      artistId: artistId 
+    });
+
+    if (!service) {
       return res.status(404).json({ success: false, message: "Service not found for this artist" });
     }
-    console.log('service fetched', service);
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    if (isNaN(start) || isNaN(end) || end <= start) {
-      return res.status(400).json({ success: false, message: "Invalid date range" });
+
+    // Validate and parse dates
+    // Handle URL encoding: replace spaces with + (for timezone offset) and decode
+    const normalizedStartDate = decodeURIComponent(startDate).replace(/ /g, '+');
+    const normalizedEndDate = decodeURIComponent(endDate).replace(/ /g, '+');
+    
+    const start = new Date(normalizedStartDate);
+    const end = new Date(normalizedEndDate);
+
+    // Check if dates are valid
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid date format. Use ISO 8601 format (e.g., 2025-12-10T10:20:00.000Z or 2025-12-10T10:20:00+00:00)",
+        received: { startDate, endDate }
+      });
     }
-    let price = service.price_for_user || 0;
+
+    // Check if end date is after start date
+    if (end <= start) {
+      return res.status(400).json({ success: false, message: "endDate must be after startDate" });
+    }
+
+    // Check artist availability for the requested date range
+    // Check for conflicting bookings (pending or confirmed status)
+    const conflictingBookings = await Booking.find({
+      artistId: artistId,
+      status: { $in: ["pending", "confirmed"] },
+      $or: [
+        // Case 1: Existing booking overlaps with requested time (starts before requested end and ends after requested start)
+        {
+          startAt: { $lt: end },
+          endAt: { $gt: start }
+        }
+      ]
+    });
+
+    // Check for calendar blocks that might block the time
+    const conflictingBlocks = await CalendarBlock.find({
+      artistId: artistId,
+      $or: [
+        {
+          startDate: { $lt: end },
+          endDate: { $gt: start }
+        }
+      ]
+    });
+    const isAvailable = conflictingBookings.length === 0 && conflictingBlocks.length === 0;
+
+    // Get base price (use price_for_user by default, or check user role if available)
+    const basePrice = service.price_for_user || 0;
+
+    if (basePrice <= 0) {
+      return res.status(400).json({ success: false, message: "Service price is not set" });
+    }
+
+    // Calculate price based on unit type
+    let price = basePrice;
+    const diffMs = end - start;
+
     if (service.unit === "hour") {
-      const diffMs = end - start;
       const hours = Math.ceil(diffMs / (1000 * 60 * 60));
-      price = price * hours;
+      price = basePrice * hours;
     } else if (service.unit === "day") {
-      const diffMs = end - start;
       const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-      price = price * days;
+      price = basePrice * days;
+    } else if (service.unit === "event") {
+      // For "event" unit, price is fixed per event regardless of duration
+      price = basePrice;
+    } else {
+      return res.status(400).json({ success: false, message: `Unsupported service unit: ${service.unit}` });
     }
-    return res.status(200).json({ success: true, price });
+
+    // Build response
+    const response = {
+      success: true,
+      available: isAvailable,
+      price: Math.round(price * 100) / 100, // Round to 2 decimal places
+      unit: service.unit,
+      basePrice: basePrice,
+      advance: service.advance || 0,
+      duration: {
+        start: start.toISOString(),
+        end: end.toISOString(),
+        milliseconds: diffMs
+      }
+    };
+
+    // Add availability information
+    if (!isAvailable) {
+      response.message = "Artist is not available for the requested date range";
+      response.conflicts = {
+        bookings: conflictingBookings.map(booking => ({
+          id: booking._id,
+          startAt: booking.startAt,
+          endAt: booking.endAt,
+          status: booking.status
+        })),
+        calendarBlocks: conflictingBlocks.map(block => ({
+          id: block._id,
+          startDate: block.startDate,
+          endDate: block.endDate,
+          type: block.type,
+          title: block.title
+        }))
+      };
+    } else {
+      response.message = "Artist is available for the requested date range";
+    }
+
+    return res.status(200).json(response);
   } catch (err) {
     console.error("getArtistPrice error:", err);
     return res.status(500).json({ success: false, message: err.message });
