@@ -11,6 +11,7 @@ import Ticket from "../models/Ticket.js";
 import WalletTransaction from "../models/WalletTransaction.js";
 import mongoose from "mongoose";
 import QRCode from "qrcode";
+import CalendarBlock from "../models/CalendarBlock.js";
 
 export const getTopArtists = async (req, res) => {
   try {
@@ -1078,6 +1079,101 @@ export const buyTicket = async (req, res) => {
   } catch (error) {
     console.error("Buy ticket error:", error);
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const createArtistBooking = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { artistId } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(artistId)) {
+      return res.status(400).json({ success: false, message: "Invalid artist ID format" });
+    }
+    const {serviceId,startDate,endDate,eventName} = req.body;
+    if(!serviceId || !startDate || !endDate || !eventName){
+      return res.status(400).json({success:false,message:"serviceId, startDate, endDate, event name are requaired"})
+    }
+    if (!mongoose.Types.ObjectId.isValid(serviceId)) {
+      return res.status(400).json({ success: false, message: "Invalid service ID format" });
+    }
+
+    const artist = await Artist.findById(artistId);
+    if (!artist) {
+      return res.status(404).json({ success: false, message: "Artist not found" });
+    }
+
+    const booking = await Booking.create({
+      clientId: userId,
+      artistId: artist._id,
+      serviceId: serviceId,
+      status: "confirmed",
+      source:"user",
+      startAt:startDate,
+      endAt:endDate
+    });
+    // Create a calendar block for the artist booking
+    await CalendarBlock.create({
+      artistId: artist._id,
+      startDate: startDate,
+      endDate: endDate,
+      type: "onlineBooking",
+      title: eventName,
+      linkedBookingId: booking._id,
+      createdBy: userId,
+    });
+
+    return res.status(201).json({ success: true, booking });
+  } catch (err) {
+    console.error("createArtistBooking error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const getArtistPrice = async (req, res) => {
+  try {
+    const { artistId, serviceId, startDate, endDate } = req.query;
+    // if (!mongoose.Types.ObjectId.isValid(artistId) || !mongoose.Types.ObjectId.isValid(serviceId)) {
+    //   return res.status(400).json({ success: false, message: "Invalid artistId or serviceId" });
+    // }
+    if (!startDate || !endDate) {
+      return res.status(400).json({ success: false, message: "startDate and endDate are required" });
+    }
+    // Find service by ID first
+    let service = await Service.findById(serviceId);
+    if (!service) {
+      console.log("service",service)
+      // Fallback: try finding by both serviceId and artistId (in case of mismatched IDs)
+      service = await Service.findOne({ _id: serviceId, artistId });
+      if (!service) {
+        return res.status(404).json({ success: false, message: "Service not found" });
+      }
+    }
+    // Verify the service belongs to the requested artist
+    if (service.artistId?.toString() !== artistId) {
+      return res.status(404).json({ success: false, message: "Service not found for this artist" });
+    }
+    console.log('service fetched', service);
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    if (isNaN(start) || isNaN(end) || end <= start) {
+      return res.status(400).json({ success: false, message: "Invalid date range" });
+    }
+    let price = service.price_for_user || 0;
+    if (service.unit === "hour") {
+      const diffMs = end - start;
+      const hours = Math.ceil(diffMs / (1000 * 60 * 60));
+      price = price * hours;
+    } else if (service.unit === "day") {
+      const diffMs = end - start;
+      const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      price = price * days;
+    }
+    return res.status(200).json({ success: true, price });
+  } catch (err) {
+    console.error("getArtistPrice error:", err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 

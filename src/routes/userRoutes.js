@@ -1,5 +1,5 @@
 import express from "express";
-import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, getTicketById, getUserProfile } from "../controllers/userController.js";
+import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, getTicketById, getUserProfile, createArtistBooking, getArtistPrice } from "../controllers/userController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 
@@ -34,6 +34,9 @@ router.post("/review", checkApiKey, verifyToken, createReview);
 
 // Buy ticket (requires authentication) - direct wallet update
 router.post("/buy-ticket", checkApiKey, verifyToken, buyTicket);
+// Artist booking route (no payment integration yet)
+router.post("/artist/:artistId/book", checkApiKey, verifyToken, createArtistBooking);
+router.get("/artist/:artistId/price", checkApiKey, getArtistPrice);
 
 // Get ticket details (requires authentication)
 router.get("/ticket/:id", checkApiKey, verifyToken, getTicketById);
