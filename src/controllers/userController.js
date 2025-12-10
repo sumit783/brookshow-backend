@@ -1014,6 +1014,7 @@ export const buyTicket = async (req, res) => {
     const ticket = new Ticket({
       ticketTypeId: ticketType._id,
       eventId: event._id,
+      userId,
       buyerName,
       buyerPhone,
       persons: quantity,
@@ -1109,6 +1110,103 @@ export const getTicketById = async (req, res) => {
     });
   } catch (error) {
     console.error("Get ticket error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getUserProfile = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?.userId;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "User ID not found in token" });
+    }
+
+    // 1. Fetch User Details
+    const user = await User.findById(userId).select("-password"); // Exclude password if it exists
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // 2. Fetch Tickets (linked by buyerPhone)
+    // Note: User must have a phone number to match tickets
+    let tickets = [];
+    if (user.phone) {
+      tickets = await Ticket.find({ userId }).select("-qrDataUrl -scanned")
+        .populate({
+          path: "eventId",
+          select: "title startAt venue address city state lat lng",
+          populate: {
+            path: "plannerProfileId",
+            select: "organization logoUrl"
+          }
+        })
+        .populate("ticketTypeId", "title price")
+        .sort({ createdAt: -1 }); // Newest tickets first
+    }
+
+    // 3. Fetch Artist Bookings (linked by clientId)
+    const bookings = await Booking.find({ clientId: user._id })
+      .populate({
+        path: "artistId",
+        select: "profileImage category location rating",
+        populate: {
+          path: "userId",
+          select: "displayName"
+        }
+      })
+      .populate("serviceId", "category unit")
+      .sort({ createdAt: -1 });
+
+    // Format response
+    res.status(200).json({
+      success: true,
+      user: {
+        id: user._id,
+        displayName: user.displayName,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        countryCode: user.countryCode,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified,
+        createdAt: user.createdAt
+      },
+      tickets: tickets.map(ticket => ({
+        id: ticket._id,
+        event: ticket.eventId ? {
+          id: ticket.eventId._id,
+          title: ticket.eventId.title,
+          date: ticket.eventId.startAt,
+          venue: ticket.eventId.venue,
+          location: `${ticket.eventId.city || ''}, ${ticket.eventId.state || ''}`,
+          image: ticket.eventId.plannerProfileId?.logoUrl // Or event image if available, logic might need adjustment based on Event model
+        } : null,
+        ticketType: ticket.ticketTypeId?.title,
+        quantity: ticket.persons,
+        totalPrice: ticket.ticketTypeId?.price ? ticket.ticketTypeId.price * ticket.persons : 0,
+        purchaseDate: ticket.createdAt,
+        qrDataUrl: ticket.qrDataUrl,
+        isValid: ticket.isValide,
+        scanned: ticket.scanned
+      })),
+      bookings: bookings.map(booking => ({
+        id: booking._id,
+        artist: booking.artistId ? {
+          id: booking.artistId._id,
+          name: booking.artistId.userId?.displayName || "Unknown",
+          image: booking.artistId.profileImage,
+          category: booking.artistId.category
+        } : null,
+        service: booking.serviceId?.category,
+        date: booking.startAt,
+        status: booking.status,
+        price: booking.totalPrice
+      }))
+    });
+
+  } catch (error) {
+    console.error("Get profile error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

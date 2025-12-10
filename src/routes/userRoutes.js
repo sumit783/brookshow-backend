@@ -1,5 +1,5 @@
 import express from "express";
-import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, getTicketById } from "../controllers/userController.js";
+import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, getTicketById, getUserProfile } from "../controllers/userController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 
@@ -37,6 +37,9 @@ router.post("/buy-ticket", checkApiKey, verifyToken, buyTicket);
 
 // Get ticket details (requires authentication)
 router.get("/ticket/:id", checkApiKey, verifyToken, getTicketById);
+
+// Get user profile and history (requires authentication)
+router.get("/profile", checkApiKey, verifyToken, getUserProfile);
 
 export default router;
 

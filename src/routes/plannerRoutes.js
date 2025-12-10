@@ -10,7 +10,7 @@ import { createTicketType, listTicketTypes, getTicketTypeById, updateTicketType,
 import { listAllArtists, getArtistDetailsById } from "../controllers/artistController.js";
 import { checkArtistAvailability } from "../controllers/userController.js";
 import { getSimilarArtists } from "../controllers/userController.js";
-import { createEmployee, listEmployees, getEmployeeById, updateEmployee, deleteEmployee, verifyTicket } from "../controllers/plannerController.js";
+import { createEmployee, listEmployees, getEmployeeById, updateEmployee, deleteEmployee, verifyTicket, getTicketDataById } from "../controllers/plannerController.js";
 
 const router = express.Router();
 
@@ -47,8 +47,8 @@ router.delete("/profile", checkApiKey, verifyToken, deletePlannerProfile);
 // Events CRUD for planners
 router.post("/events", checkApiKey, verifyToken, uploadMiddleware.single("banner"), createEvent);
 router.get("/events", checkApiKey, verifyToken, listEvents);
-router.get("/events/:id", checkApiKey, verifyToken, getEventById);
 router.get("/events/id", checkApiKey, verifyToken, getEventAndId);
+router.get("/events/:id", checkApiKey, verifyToken, getEventById);
 router.put("/events/:id", checkApiKey, verifyToken, uploadMiddleware.single("banner"), updateEvent);
 router.delete("/events/:id", checkApiKey, verifyToken, deleteEvent);
 
@@ -80,5 +80,8 @@ router.delete("/employees/:id", checkApiKey, verifyToken, deleteEmployee);
 
 // Ticket Verification
 router.post("/verify-ticket", checkApiKey, verifyToken, verifyTicket);
+
+// Get specific ticket data by ID
+router.get("/ticket-data/:id", checkApiKey, verifyToken, getTicketDataById);
 
 export default router;
