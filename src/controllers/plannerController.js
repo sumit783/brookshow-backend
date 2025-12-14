@@ -3,6 +3,7 @@ import WalletTransaction from "../models/WalletTransaction.js";
 import User from "../models/User.js";
 import PlannerEmployee from "../models/PlannerEmployee.js";
 import Ticket from "../models/Ticket.js";
+import WithdrawalRequest from "../models/WithdrawalRequest.js";
 import mongoose from "mongoose";
 
 export const createPlannerProfile = async (req, res) => {
@@ -114,8 +115,8 @@ export const createEmployee = async (req, res) => {
     const plannerProfile = await PlannerProfile.findOne({ userId: plannerUserId }).select("_id");
     if (!plannerProfile) return res.status(404).json({ message: "Planner profile not found" });
 
-    const { displayName, email, phone, countryCode,isActive } = req.body;
-    if (!displayName || !email || !phone || !isActive){
+    const { displayName, email, phone, countryCode, isActive } = req.body;
+    if (!displayName || !email || !phone || !isActive) {
       return res.status(400).json({ success: false, message: "Display name, email, phone, and isActive are required" });
     }
     // Check if user already exists (by email or phone)
@@ -157,12 +158,12 @@ export const listEmployees = async (req, res) => {
   try {
     const plannerUserId = req.user?.id;
     if (!plannerUserId) return res.status(401).json({ message: "Unauthorized" });
-    console.log("planner user id",plannerUserId)
+    console.log("planner user id", plannerUserId)
     const plannerProfile = await PlannerProfile.findOne({ userId: plannerUserId }).select("_id");
     if (!plannerProfile) return res.status(404).json({ message: "Planner profile not found" });
-    console.log("planner profile",plannerProfile)
+    console.log("planner profile", plannerProfile)
     const employees = await PlannerEmployee.find({ plannerProfileId: plannerProfile._id })
-    console.log("employees",employees)
+    console.log("employees", employees)
     return res.status(200).json({ success: true, employees });
   } catch (err) {
     console.error("Error listing employees:", err);
@@ -303,7 +304,7 @@ export const verifyTicket = async (req, res) => {
 
     const plannerProfileId = await getPlannerIdForUser(userId);
     if (!plannerProfileId) {
-        return res.status(403).json({ message: "Unauthorized: Not a planner or active employee" });
+      return res.status(403).json({ message: "Unauthorized: Not a planner or active employee" });
     }
 
     const { ticketId, count = 1 } = req.body;
@@ -317,8 +318,8 @@ export const verifyTicket = async (req, res) => {
     }
 
     const ticket = await Ticket.findById(ticketId).populate('ticketTypeId', 'title').populate({
-        path: 'eventId',
-        select: 'plannerProfileId'
+      path: 'eventId',
+      select: 'plannerProfileId'
     });
 
     if (!ticket) {
@@ -327,7 +328,7 @@ export const verifyTicket = async (req, res) => {
 
     // Authorization check
     if (!ticket.eventId || ticket.eventId.plannerProfileId.toString() !== plannerProfileId.toString()) {
-        return res.status(403).json({ success: false, message: "You are not authorized to verify this ticket" });
+      return res.status(403).json({ success: false, message: "You are not authorized to verify this ticket" });
     }
 
     if (!ticket.isValide) {
@@ -341,49 +342,49 @@ export const verifyTicket = async (req, res) => {
 
     // Check if ticket is fully used
     if (ticket.scanned || ticket.scannedPersons >= ticket.persons) {
-        return res.status(400).json({ 
-            success: false, 
-            message: "Ticket already fully used",
-            ticket: {
-                buyerName: ticket.buyerName,
-                scannedPersons: ticket.scannedPersons,
-                totalPersons: ticket.persons
-            }
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Ticket already fully used",
+        ticket: {
+          buyerName: ticket.buyerName,
+          scannedPersons: ticket.scannedPersons,
+          totalPersons: ticket.persons
+        }
+      });
     }
 
     // Check if adding count exceeds limits
     if (ticket.scannedPersons + requestedCount > ticket.persons) {
-        const remaining = ticket.persons - ticket.scannedPersons;
-        return res.status(400).json({ 
-            success: false, 
-            message: `Cannot admit ${requestedCount} people. Only ${remaining} entries remaining.`,
-            remaining
-        });
+      const remaining = ticket.persons - ticket.scannedPersons;
+      return res.status(400).json({
+        success: false,
+        message: `Cannot admit ${requestedCount} people. Only ${remaining} entries remaining.`,
+        remaining
+      });
     }
 
     // Update ticket
     ticket.scannedPersons += requestedCount;
     ticket.scannedAt = new Date();
-    
+
     if (ticket.scannedPersons >= ticket.persons) {
-        ticket.scanned = true;
+      ticket.scanned = true;
     }
 
     await ticket.save();
 
     return res.status(200).json({
-        success: true,
-        message: "Entry verified",
-        entriesGranted: requestedCount,
-        totalScanned: ticket.scannedPersons,
-        remainingEntries: ticket.persons - ticket.scannedPersons,
-        ticket: {
-            id: ticket._id,
-            buyerName: ticket.buyerName,
-            type: ticket.ticketTypeId?.title || "Standard",
-            isFullyUsed: ticket.scanned
-        }
+      success: true,
+      message: "Entry verified",
+      entriesGranted: requestedCount,
+      totalScanned: ticket.scannedPersons,
+      remainingEntries: ticket.persons - ticket.scannedPersons,
+      ticket: {
+        id: ticket._id,
+        buyerName: ticket.buyerName,
+        type: ticket.ticketTypeId?.title || "Standard",
+        isFullyUsed: ticket.scanned
+      }
     });
 
   } catch (err) {
@@ -401,10 +402,10 @@ export const getTicketDataById = async (req, res) => {
 
     // Determine planner context (Direct Owner or Employee)
     const plannerProfileId = await getPlannerIdForUser(userId);
-    
+
     if (!plannerProfileId) {
-        console.warn(`[DEBUG] User is NOT a Planner or Employee. UserID: ${userId}`);
-        return res.status(403).json({ message: "Access denied. Not a planner or employee." });
+      console.warn(`[DEBUG] User is NOT a Planner or Employee. UserID: ${userId}`);
+      return res.status(403).json({ message: "Access denied. Not a planner or employee." });
     }
     console.log(`[DEBUG] Acting on behalf of Planner Profile: ${plannerProfileId}`);
 
@@ -441,3 +442,59 @@ export const getTicketDataById = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+
+export const requestWithdrawal = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { amount, bankDetails } = req.body;
+
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid amount" });
+    }
+
+    const planner = await PlannerProfile.findOne({ userId });
+    if (!planner) {
+      return res.status(404).json({ success: false, message: "Planner profile not found" });
+    }
+
+    if (planner.walletBalance < amount) {
+      return res.status(400).json({ success: false, message: "Insufficient balance" });
+    }
+
+    // Deduct balance
+    planner.walletBalance -= amount;
+    await planner.save();
+
+    // Create Transaction
+    const transaction = await WalletTransaction.create({
+      ownerId: planner._id,
+      ownerType: "planner",
+      type: "debit",
+      amount,
+      source: "withdraw",
+      description: "Withdrawal Request",
+      status: "pending"
+    });
+
+    // Create Withdrawal Request
+    const withdrawalRequest = await WithdrawalRequest.create({
+      userId: userId,
+      userType: "planner",
+      amount,
+      bankDetails,
+      transactionId: transaction._id
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Withdrawal request created successfully",
+      withdrawalRequest,
+      newBalance: planner.walletBalance
+    });
+
+  } catch (err) {
+    console.error("requestWithdrawal error:", err);
+    return res.status(500).json({ success: false, message: "Failed to process withdrawal request" });
+  }
+};
+

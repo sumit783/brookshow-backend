@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions } from "../controllers/plannerController.js";
+import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions, requestWithdrawal } from "../controllers/plannerController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import { createEvent, listEvents, getEventById, updateEvent, deleteEvent, getEventAndId } from "../controllers/eventController.js";
@@ -40,8 +40,8 @@ const uploadMiddleware = multer({
 });
 
 router.post("/profile", checkApiKey, verifyToken, uploadMiddleware.single("logo"), createPlannerProfile);
-router.get("/profile", checkApiKey, verifyToken,getPlannerProfile);
-router.put("/profile", checkApiKey, verifyToken,uploadMiddleware.single("logo"), updatePlannerProfile);
+router.get("/profile", checkApiKey, verifyToken, getPlannerProfile);
+router.put("/profile", checkApiKey, verifyToken, uploadMiddleware.single("logo"), updatePlannerProfile);
 router.delete("/profile", checkApiKey, verifyToken, deletePlannerProfile);
 
 // Events CRUD for planners
@@ -70,6 +70,7 @@ router.delete("/tickets/:id", checkApiKey, verifyToken, deleteTicketType);
 // Planner Wallet and Transactions
 router.get("/wallet", checkApiKey, verifyToken, getPlannerWallet);
 router.get("/transactions", checkApiKey, verifyToken, listPlannerTransactions);
+router.post("/withdraw", checkApiKey, verifyToken, requestWithdrawal);
 
 // Employee Management
 router.post("/employees", checkApiKey, verifyToken, createEmployee);

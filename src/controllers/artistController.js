@@ -5,6 +5,8 @@ import MediaItem from "../models/MediaItem.js";
 import Category from "../models/Category.js";
 import Service from "../models/Service.js";
 import Review from "../models/Review.js";
+import WithdrawalRequest from "../models/WithdrawalRequest.js";
+import WalletTransaction from "../models/WalletTransaction.js";
 
 function getBodyField(value) {
   if (typeof value === "string") {
@@ -24,12 +26,12 @@ export const createArtistProfile = async (req, res) => {
     let categories = Array.isArray(_category)
       ? _category
       : (typeof _category === 'string' ? _category.split(',').map(x => x.trim()).filter(Boolean) : []);
-    
+
     // Fetch active categories from database
     const activeCategories = await Category.find({ isActive: true }).select("name");
     const allowedCats = activeCategories.map(cat => cat.name);
     categories = categories.filter(x => allowedCats.includes(x));
-    
+
     let eventPricing = req.body.eventPricing;
     if (typeof eventPricing === 'string') {
       try { eventPricing = JSON.parse(eventPricing); } catch { eventPricing = {}; }
@@ -55,7 +57,7 @@ export const createArtistProfile = async (req, res) => {
           await Service.create({
             artistId: artist._id,
             category: categoryName,
-            unit: serviceData.unit || "day", 
+            unit: serviceData.unit || "day",
             price_for_user: serviceData.userPrice,
             price_for_planner: serviceData.eventPlannerPrice,
             advance: serviceData.advance,
@@ -178,7 +180,7 @@ export const uploadArtistMedia = async (req, res) => {
     const userId = req.user.id;
     const artist = await Artist.findOne({ userId });
     if (!artist) return res.status(404).json({ message: 'Artist profile not found for user' });
-    const files = [ ...(req.files["photos"] || []), ...(req.files["videos"] || []) ];
+    const files = [...(req.files["photos"] || []), ...(req.files["videos"] || [])];
     if (!files.length) return res.status(400).json({ message: 'No files uploaded' });
     const items = await Promise.all(
       files.map(async (f) => {
@@ -320,5 +322,60 @@ export const getArtistDetailsById = async (req, res) => {
     return res.status(200).json({ success: true, ...artistData, media, reviews });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const requestWithdrawal = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { amount, bankDetails } = req.body;
+
+    if (!amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid amount" });
+    }
+
+    const artist = await Artist.findOne({ userId });
+    if (!artist) {
+      return res.status(404).json({ success: false, message: "Artist profile not found" });
+    }
+
+    if (artist.walletBalance < amount) {
+      return res.status(400).json({ success: false, message: "Insufficient balance" });
+    }
+
+    // Deduct balance
+    artist.walletBalance -= amount;
+    await artist.save();
+
+    // Create Transaction
+    const transaction = await WalletTransaction.create({
+      ownerId: artist._id,
+      ownerType: "artist",
+      type: "debit",
+      amount,
+      source: "withdraw",
+      description: "Withdrawal Request",
+      status: "pending"
+    });
+
+    // Create Withdrawal Request
+    const withdrawalRequest = await WithdrawalRequest.create({
+      userId: userId,
+      userType: "artist",
+      amount,
+      bankDetails,
+      transactionId: transaction._id
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Withdrawal request created successfully",
+      withdrawalRequest,
+      newBalance: artist.walletBalance
+    });
+
+  } catch (err) {
+    console.error("requestWithdrawal error:", err);
+    return res.status(500).json({ success: false, message: "Failed to process withdrawal request" });
   }
 };

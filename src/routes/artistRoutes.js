@@ -11,6 +11,7 @@ import {
   deleteArtistMedia,
   listCategories,
   listArtistMedia,
+  requestWithdrawal,
 } from "../controllers/artistController.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
@@ -78,5 +79,8 @@ router.post(
   uploadArtistMedia
 );
 router.delete("/profile/media/:id", checkApiKey, verifyToken, deleteArtistMedia);
+
+// Withdraw Request
+router.post("/withdraw", checkApiKey, verifyToken, requestWithdrawal);
 
 export default router;
