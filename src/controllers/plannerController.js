@@ -122,11 +122,11 @@ export const createEmployee = async (req, res) => {
     // Check if user already exists (by email or phone)
     const existingUser = await User.findOne({ $or: [{ email: email }, { phone: phone }] });
     if (existingUser) {
-      return res.status(409).json({ success: false, message: "User with this email or phone already exists" });
-    }
-
-    // Create a new user with employee role and default verified statuses
-    const newUser = await User.create({
+      existingUser.role="employee"
+      existingUser.isActive=isActive
+      await existingUser.save()
+    }else{
+       const newUser = await User.create({
       displayName,
       email,
       phone,
@@ -137,6 +137,10 @@ export const createEmployee = async (req, res) => {
       isAdminVerified: true,
       isActive: isActive || true, // Default active
     });
+    }
+
+    // Create a new user with employee role and default verified statuses
+   
 
     // Link the new user as an employee to the planner profile
     const plannerEmployee = await PlannerEmployee.create({
@@ -144,10 +148,10 @@ export const createEmployee = async (req, res) => {
       name: displayName,
       email,
       phone,
-      employeeId: newUser._id,
+      employeeId: existingUser?._id || newUser?._id,
     });
 
-    return res.status(201).json({ success: true, message: "Employee created successfully", employee: newUser, plannerEmployee });
+    return res.status(201).json({ success: true, message: "Employee created successfully", employee: existingUser?._id || newUser?._id, plannerEmployee });
   } catch (err) {
     console.error("Error creating employee:", err);
     return res.status(500).json({ success: false, message: "Failed to create employee" });
@@ -270,13 +274,15 @@ export const deleteEmployee = async (req, res) => {
     }
 
     // Find and delete the PlannerEmployee entry
-    const plannerEmployee = await PlannerEmployee.findOneAndDelete({ _id: id, plannerProfileId: plannerProfile._id });
+    const plannerEmployee = await PlannerEmployee.findOne({ _id: id, plannerProfileId: plannerProfile._id });
+    plannerEmployee.isActive=false;
+    await plannerEmployee.save();
     if (!plannerEmployee) {
       return res.status(404).json({ message: "Employee not found for this planner" });
     }
 
     // Also delete the associated User document
-    await User.findByIdAndDelete(plannerEmployee.employeeId);
+    // await User.findByIdAndDelete(plannerEmployee.employeeId);
 
     return res.status(204).send();
   } catch (err) {
