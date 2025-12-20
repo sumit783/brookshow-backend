@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions, requestWithdrawal } from "../controllers/plannerController.js";
+import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions, requestWithdrawal, createArtistBooking, checkArtistAvailabilityWithPricing, getPlannerEvents } from "../controllers/plannerController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import { createEvent, listEvents, getEventById, updateEvent, deleteEvent, getEventAndId } from "../controllers/eventController.js";
@@ -84,5 +84,14 @@ router.post("/verify-ticket", checkApiKey, verifyToken, verifyTicket);
 
 // Get specific ticket data by ID
 router.get("/ticket-data/:id", checkApiKey, verifyToken, getTicketDataById);
+
+// Artist Booking
+router.post("/bookings/artist", checkApiKey, verifyToken, createArtistBooking);
+
+// Check Artist Availability with Pricing
+router.get("/artists/availability/check", checkApiKey, verifyToken, checkArtistAvailabilityWithPricing);
+
+// Get Planner Events (Title and ID)
+router.get("/events-list", checkApiKey, verifyToken, getPlannerEvents);
 
 export default router;

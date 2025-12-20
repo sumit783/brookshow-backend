@@ -13,7 +13,6 @@ const DB_NAME = process.env.DB_NAME || "brookshow";
 
 async function startServer() {
   try {
-    // ✅ Connect to MongoDB before starting the server
     await mongoose.connect(MONGO_URI, {
       dbName: DB_NAME,
       useNewUrlParser: true,
@@ -22,10 +21,8 @@ async function startServer() {
 
     console.log(`✅ MongoDB connected to database: ${DB_NAME}`);
 
-    // Optional cleanup
     await dropLegacyArtistIndexes();
 
-    // Start server only after successful connection
     const server = http.createServer(app);
     server.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
