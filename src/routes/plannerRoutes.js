@@ -11,6 +11,7 @@ import { listAllArtists, getArtistDetailsById } from "../controllers/artistContr
 import { checkArtistAvailability } from "../controllers/userController.js";
 import { getSimilarArtists } from "../controllers/userController.js";
 import { createEmployee, listEmployees, getEmployeeById, updateEmployee, deleteEmployee, verifyTicket, getTicketDataById } from "../controllers/plannerController.js";
+import { addBankDetail, getBankDetails, updateBankDetail, deleteBankDetail } from "../controllers/bankDetailController.js";
 
 const router = express.Router();
 
@@ -93,5 +94,11 @@ router.get("/artists/availability/check", checkApiKey, verifyToken, checkArtistA
 
 // Get Planner Events (Title and ID)
 router.get("/events-list", checkApiKey, verifyToken, getPlannerEvents);
+
+// Bank Details Management
+router.post("/bank-details", checkApiKey, verifyToken, addBankDetail);
+router.get("/bank-details", checkApiKey, verifyToken, getBankDetails);
+router.put("/bank-details/:id", checkApiKey, verifyToken, updateBankDetail);
+router.delete("/bank-details/:id", checkApiKey, verifyToken, deleteBankDetail);
 
 export default router;

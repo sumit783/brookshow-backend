@@ -7,6 +7,7 @@ import WithdrawalRequest from "../models/WithdrawalRequest.js";
 import Booking from "../models/Booking.js";
 import Artist from "../models/Artist.js";
 import Service from "../models/Service.js";
+import BankDetail from "../models/BankDetail.js";
 import mongoose from "mongoose";
 
 export const createPlannerProfile = async (req, res) => {
@@ -105,7 +106,39 @@ export const getPlannerWallet = async (req, res) => {
     const plannerProfile = await PlannerProfile.findOne({ userId }).select("walletBalance");
     if (!plannerProfile) return res.status(404).json({ message: "Planner profile not found" });
 
-    return res.status(200).json({ success: true, walletBalance: plannerProfile.walletBalance });
+    // Calculate total income and total expense
+    const stats = await WalletTransaction.aggregate([
+      {
+        $match: {
+          ownerId: plannerProfile._id,
+          ownerType: "planner"
+        }
+      },
+      {
+        $group: {
+          _id: "$type",
+          total: { $sum: "$amount" }
+        }
+      }
+    ]);
+
+    let totalIncome = 0;
+    let totalExpense = 0;
+
+    stats.forEach(stat => {
+      if (stat._id === "credit") {
+        totalIncome = stat.total;
+      } else if (stat._id === "debit") {
+        totalExpense = stat.total;
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      walletBalance: plannerProfile.walletBalance,
+      totalIncome,
+      totalExpense
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -473,10 +506,16 @@ export const getTicketDataById = async (req, res) => {
 export const requestWithdrawal = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { amount, bankDetails } = req.body;
+    const { amount } = req.body;
 
-    if (!amount || isNaN(amount) || amount <= 0) {
+    if (!amount || amount <= 0) {
       return res.status(400).json({ success: false, message: "Invalid amount" });
+    }
+
+    // Check if bank details are available
+    const bankDetailExists = await BankDetail.findOne({ userId });
+    if (!bankDetailExists) {
+      return res.status(400).json({ success: false, message: "Bank details is not avilable" });
     }
 
     const planner = await PlannerProfile.findOne({ userId });
@@ -508,7 +547,13 @@ export const requestWithdrawal = async (req, res) => {
       userId: userId,
       userType: "planner",
       amount,
-      bankDetails,
+      bankDetails: {
+        accountHolder: bankDetailExists.accountHolderName,
+        accountNumber: bankDetailExists.accountNumber,
+        bankName: bankDetailExists.bankName,
+        ifscCode: bankDetailExists.ifscCode,
+        upiId: bankDetailExists.upiId
+      },
       transactionId: transaction._id
     });
 
