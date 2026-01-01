@@ -7,7 +7,7 @@ const withdrawalRequestSchema = new mongoose.Schema(
         amount: { type: Number, required: true },
         status: {
             type: String,
-            enum: ["pending", "approved", "rejected", "processed"],
+            enum: ["pending", "rejected", "processed"],
             default: "pending"
         },
         bankDetails: {

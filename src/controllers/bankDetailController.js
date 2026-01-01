@@ -66,11 +66,11 @@ export const getBankDetails = async (req, res) => {
 export const updateBankDetail = async (req, res) => {
     try {
         const userId = req.user?.id;
-        if (!userId) return res.status(401).json({ message: "Unauthorized" });
+        if (!userId) return res.status(401).json({ message: "Unauthorized", success: false });
 
         const { id } = req.params;
         if (!mongoose.Types.ObjectId.isValid(id)) {
-            return res.status(400).json({ message: "Invalid ID format" });
+            return res.status(400).json({ message: "Invalid ID format", success: false });
         }
 
         const updates = req.body;
@@ -87,7 +87,7 @@ export const updateBankDetail = async (req, res) => {
             { new: true }
         );
 
-        if (!bankDetail) return res.status(404).json({ message: "Bank detail not found" });
+        if (!bankDetail) return res.status(404).json({ message: "Bank detail not found", success: false });
 
         return res.status(200).json({ success: true, message: "Bank details updated", bankDetail });
     } catch (err) {
@@ -99,18 +99,18 @@ export const updateBankDetail = async (req, res) => {
 export const deleteBankDetail = async (req, res) => {
     try {
         const userId = req.user?.id;
-        if (!userId) return res.status(401).json({ message: "Unauthorized" });
+        if (!userId) return res.status(401).json({ message: "Unauthorized", success: false });
 
         const { id } = req.params;
         if (!mongoose.Types.ObjectId.isValid(id)) {
-            return res.status(400).json({ message: "Invalid ID format" });
+            return res.status(400).json({ message: "Invalid ID format", success: false });
         }
 
         const bankDetail = await BankDetail.findOneAndDelete({ _id: id, userId });
 
-        if (!bankDetail) return res.status(404).json({ message: "Bank detail not found" });
+        if (!bankDetail) return res.status(404).json({ message: "Bank detail not found", success: false });
 
-        return res.status(200).json({ success: true, message: "Bank details deleted" });
+        return res.status(200).json({ success: true, message: "Bank details deleted", bankDetail });
     } catch (err) {
         return res.status(500).json({ success: false, message: err.message });
     }

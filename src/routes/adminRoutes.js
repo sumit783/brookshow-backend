@@ -1,6 +1,6 @@
 import express from "express";
 import { verifySupabaseAdmin } from "../middlewares/adminAuthMiddleware.js";
-import { verifyArtist, rejectArtist, verifyPlanner, rejectPlanner, getAllArtists, getArtistById, getAllEvents, getEventById, getAllTransactions, getAllBookings, getBookingById, getTransactionById, getDashboardStats, getRevenueChartData, getBookingTrends, getAllPlanners, getPlannerById, getBookingStats } from "../controllers/adminController.js";
+import { verifyArtist, rejectArtist, verifyPlanner, rejectPlanner, getAllArtists, getArtistById, getAllEvents, getEventById, getAllTransactions, getAllBookings, getBookingById, getTransactionById, getDashboardStats, getRevenueChartData, getBookingTrends, getAllPlanners, getPlannerById, getBookingStats, getAllWithdrawalRequests, getWithdrawalRequestById, updateWithdrawalStatus } from "../controllers/adminController.js";
 import { createCategory, listCategories, getCategoryById, updateCategory, deleteCategory } from "../controllers/categoryController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 
@@ -35,6 +35,11 @@ router.get("/planners", checkApiKey, verifySupabaseAdmin, getAllPlanners);
 router.get("/planners/:id", checkApiKey, verifySupabaseAdmin, getPlannerById);
 router.put("/planners/:id/verify", checkApiKey, verifySupabaseAdmin, verifyPlanner);
 router.put("/planners/:id/reject", checkApiKey, verifySupabaseAdmin, rejectPlanner);
+
+// Withdrawal Request routes
+router.get("/withdrawals", checkApiKey, verifySupabaseAdmin, getAllWithdrawalRequests);
+router.get("/withdrawals/:id", checkApiKey, verifySupabaseAdmin, getWithdrawalRequestById);
+router.put("/withdrawals/:id/status", checkApiKey, verifySupabaseAdmin, updateWithdrawalStatus);
 
 // Category CRUD routes
 router.post("/categories", checkApiKey, verifySupabaseAdmin, createCategory);

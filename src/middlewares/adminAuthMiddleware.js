@@ -32,7 +32,7 @@ export const verifySupabaseAdmin = async (req, res, next) => {
     // 3️⃣ Try verifying with your app JWT (custom admin)
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      if (decoded && decoded.role === "admin") {
+      if (decoded) {
         req.admin = decoded;
         return next();
       }

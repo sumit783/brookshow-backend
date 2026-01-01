@@ -876,3 +876,19 @@ export const getPlannerEvents = async (req, res) => {
     return res.status(500).json({ success: false, message: "Failed to fetch events" });
   }
 };
+
+export const listMyWithdrawalRequests = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const requests = await WithdrawalRequest.find({ userId: userId, userType: "planner" })
+      .populate("transactionId")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({ success: true, count: requests.length, requests });
+  } catch (err) {
+    console.error("Error listing withdrawal requests:", err);
+    return res.status(500).json({ success: false, message: "Failed to list withdrawal requests" });
+  }
+};

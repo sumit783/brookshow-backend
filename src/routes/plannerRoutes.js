@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions, requestWithdrawal, createArtistBooking, checkArtistAvailabilityWithPricing, getPlannerEvents } from "../controllers/plannerController.js";
+import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions, requestWithdrawal, createArtistBooking, checkArtistAvailabilityWithPricing, getPlannerEvents, listMyWithdrawalRequests } from "../controllers/plannerController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import { createEvent, listEvents, getEventById, updateEvent, deleteEvent, getEventAndId } from "../controllers/eventController.js";
@@ -72,6 +72,7 @@ router.delete("/tickets/:id", checkApiKey, verifyToken, deleteTicketType);
 router.get("/wallet", checkApiKey, verifyToken, getPlannerWallet);
 router.get("/transactions", checkApiKey, verifyToken, listPlannerTransactions);
 router.post("/withdraw", checkApiKey, verifyToken, requestWithdrawal);
+router.get("/withdrawals", checkApiKey, verifyToken, listMyWithdrawalRequests);
 
 // Employee Management
 router.post("/employees", checkApiKey, verifyToken, createEmployee);

@@ -6,6 +6,7 @@ import Booking from "../models/Booking.js";
 import WalletTransaction from "../models/WalletTransaction.js";
 import Ticket from "../models/Ticket.js";
 import MediaItem from "../models/MediaItem.js";
+import WithdrawalRequest from "../models/WithdrawalRequest.js";
 
 export const getAllArtists = async (req, res) => {
   try {
@@ -737,6 +738,92 @@ export const rejectPlanner = async (req, res) => {
     );
     if (!planner) return res.status(404).json({ message: "Planner profile not found" });
     return res.status(200).json({ message: "Planner rejected", planner });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+};
+
+export const getAllWithdrawalRequests = async (req, res) => {
+  try {
+    const requests = await WithdrawalRequest.find()
+      .populate("userId", "displayName")
+      .sort({ createdAt: -1 });
+    return res.status(200).json(requests);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+};
+
+export const getWithdrawalRequestById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const request = await WithdrawalRequest.findById(id)
+      .populate("userId", "displayName email phone role")
+      .populate("transactionId");
+
+    if (!request) {
+      return res.status(404).json({ message: "Withdrawal request not found" });
+    }
+
+    return res.status(200).json(request);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+};
+
+export const updateWithdrawalStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, adminNotes } = req.body;
+
+    if (!["processed", "rejected"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status. Use 'processed' or 'rejected'." });
+    }
+
+    if (status === "rejected" && !adminNotes) {
+      return res.status(400).json({ message: "Admin note is compulsory when rejecting a request." });
+    }
+
+    const request = await WithdrawalRequest.findById(id);
+
+    if (!request) {
+      return res.status(404).json({ message: "Withdrawal request not found" });
+    }
+
+    if (request.status !== "pending") {
+      return res.status(400).json({ message: `Request is already ${request.status}.` });
+    }
+
+    request.status = status;
+    if (adminNotes) {
+      request.adminNotes = adminNotes;
+    }
+
+    await request.save();
+
+    // Update Wallet Transaction
+    if (request.transactionId) {
+      const transactionStatus = status === "processed" ? "completed" : "failed";
+      await WalletTransaction.findByIdAndUpdate(request.transactionId, { status: transactionStatus });
+    }
+
+    // Refund if rejected
+    if (status === "rejected") {
+      if (request.userType === "planner") {
+        await PlannerProfile.findOneAndUpdate(
+          { userId: request.userId },
+          { $inc: { walletBalance: request.amount } }
+        );
+      } else if (request.userType === "artist") {
+        // Checking Artist model structure from previous views
+        await Artist.findOneAndUpdate(
+          { userId: request.userId },
+          { $inc: { "wallet.balance": request.amount } }
+        );
+      }
+    }
+
+    return res.status(200).json({ message: `Withdrawal request ${status} successfully`, request });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
