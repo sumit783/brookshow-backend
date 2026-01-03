@@ -1,5 +1,5 @@
 import express from "express";
-import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, getTicketById, getUserProfile, createArtistBooking, getArtistPrice } from "../controllers/userController.js";
+import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, getTicketById, getUserProfile, createArtistBooking, getArtistPrice, getTicketTypesByEvent } from "../controllers/userController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 
@@ -16,6 +16,9 @@ router.get("/artists", checkApiKey, getAllArtists);
 
 // Get event details by ID (public route, no auth required)
 router.get("/event/:id", checkApiKey, getEventById);
+
+// Get ticket types for an event
+router.get("/event/:eventId/ticket-types", checkApiKey, getTicketTypesByEvent);
 
 // Get similar artists by artist ID (public route, no auth required) - must come before /artist/:id
 router.get("/artist/:id/similar", checkApiKey, getSimilarArtists);

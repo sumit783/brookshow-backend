@@ -1416,3 +1416,27 @@ export const getUserProfile = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+export const getTicketTypesByEvent = async (req, res) => {
+  try {
+    const { eventId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(eventId)) {
+      return res.status(400).json({ success: false, message: "Invalid event ID format" });
+    }
+
+    const ticketTypes = await TicketType.find({ eventId }).select("title _id price");
+
+    return res.status(200).json({
+      success: true,
+      ticketTypes: ticketTypes.map((tt) => ({
+        id: tt._id,
+        name: tt.title,
+        price: tt.price,
+      })),
+    });
+  } catch (error) {
+    console.error("Get ticket types error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
