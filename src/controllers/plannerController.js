@@ -3,6 +3,8 @@ import WalletTransaction from "../models/WalletTransaction.js";
 import User from "../models/User.js";
 import PlannerEmployee from "../models/PlannerEmployee.js";
 import Ticket from "../models/Ticket.js";
+import Event from "../models/Event.js";
+import TicketType from "../models/TicketType.js";
 import WithdrawalRequest from "../models/WithdrawalRequest.js";
 import Booking from "../models/Booking.js";
 import Artist from "../models/Artist.js";
@@ -890,5 +892,254 @@ export const listMyWithdrawalRequests = async (req, res) => {
   } catch (err) {
     console.error("Error listing withdrawal requests:", err);
     return res.status(500).json({ success: false, message: "Failed to list withdrawal requests" });
+  }
+};
+
+/**
+ * Get Dashboard Revenue Data (Calculated from DB)
+ */
+export const getDashboardRevenue = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    // Calculate revenue from completed credit transactions in the last 7 months
+    const sevenMonthsAgo = new Date();
+    sevenMonthsAgo.setMonth(sevenMonthsAgo.getMonth() - 6);
+    sevenMonthsAgo.setDate(1);
+    sevenMonthsAgo.setHours(0, 0, 0, 0);
+
+    const revenueData = await WalletTransaction.aggregate([
+      {
+        $match: {
+          ownerId: new mongoose.Types.ObjectId(userId),
+          ownerType: "planner",
+          type: "credit",
+          status: "completed",
+          createdAt: { $gte: sevenMonthsAgo }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            month: { $month: "$createdAt" },
+            year: { $year: "$createdAt" }
+          },
+          revenue: { $sum: "$amount" },
+          bookings: { $sum: 1 }
+        }
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1 } }
+    ]);
+
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    // Initialize last 7 months with 0
+    const formattedData = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const monthIndex = d.getMonth();
+      const year = d.getFullYear();
+      
+      const match = revenueData.find(item => item._id.month === (monthIndex + 1) && item._id.year === year);
+      
+      formattedData.push({
+        name: months[monthIndex],
+        revenue: match ? match.revenue : 0,
+        bookings: match ? match.bookings : 0
+      });
+    }
+
+    res.status(200).json({ success: true, data: formattedData });
+  } catch (error) {
+    console.error("Error fetching dashboard revenue:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/**
+ * Get Dashboard Ticket Distribution Data (Calculated from DB)
+ */
+export const getDashboardTicketDistribution = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const plannerProfile = await PlannerProfile.findOne({ userId });
+    if (!plannerProfile) return res.status(404).json({ success: false, message: "Planner profile not found" });
+
+    const events = await Event.find({ plannerProfileId: plannerProfile._id });
+    const eventIds = events.map(e => e._id);
+
+    const distribution = await TicketType.aggregate([
+      { $match: { eventId: { $in: eventIds } } },
+      {
+        $group: {
+          _id: "$title",
+          value: { $sum: "$sold" }
+        }
+      }
+    ]);
+
+    const colors = ['#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#3B82F6', '#6366F1'];
+    const formattedData = distribution.map((item, index) => ({
+      name: item._id,
+      value: item.value,
+      color: colors[index % colors.length]
+    }));
+
+    res.status(200).json({ success: true, data: formattedData });
+  } catch (error) {
+    console.error("Error fetching dashboard ticket distribution:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/**
+ * Get Dashboard Recent Events Data (Calculated from DB)
+ */
+export const getDashboardRecentEvents = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const plannerProfile = await PlannerProfile.findOne({ userId });
+    if (!plannerProfile) return res.status(404).json({ success: false, message: "Planner profile not found" });
+
+    const events = await Event.find({ plannerProfileId: plannerProfile._id })
+      .sort({ createdAt: -1 })
+      .limit(5);
+
+    const formattedEvents = await Promise.all(events.map(async (event) => {
+      const ticketTypes = await TicketType.find({ eventId: event._id });
+      const totalSold = ticketTypes.reduce((sum, t) => sum + (t.sold || 0), 0);
+      const totalQty = ticketTypes.reduce((sum, t) => sum + (t.quantity || 0), 0) || 1; // Avoid division by zero
+      
+      let status = "Upcoming";
+      const now = new Date();
+      if (event.endAt < now) {
+        status = "Completed";
+      } else if (event.startAt <= now && event.endAt >= now) {
+        status = "Ongoing";
+      } else if (totalSold > 0) {
+        status = "Registration Open";
+      }
+
+      return {
+        id: event._id,
+        title: event.title,
+        date: event.startAt ? event.startAt.toISOString().split('T')[0] : 'N/A',
+        venue: event.venue || 'N/A',
+        status: status,
+        progress: Math.round((totalSold / totalQty) * 100)
+      };
+    }));
+
+    res.status(200).json({ success: true, data: formattedEvents });
+  } catch (error) {
+    console.error("Error fetching dashboard recent events:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/**
+ * Get Dashboard Summary Metrics
+ */
+export const getDashboardMetrics = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const plannerProfile = await PlannerProfile.findOne({ userId });
+    if (!plannerProfile) return res.status(404).json({ success: false, message: "Planner profile not found" });
+
+    const now = new Date();
+
+    // 1. Total Revenue
+    const revenueResult = await WalletTransaction.aggregate([
+      {
+        $match: {
+          ownerId: new mongoose.Types.ObjectId(userId),
+          ownerType: "planner",
+          type: "credit",
+          status: "completed"
+        }
+      },
+      { $group: { _id: null, total: { $sum: "$amount" } } }
+    ]);
+    const totalRevenue = revenueResult[0]?.total || 0;
+
+    // 2. Tickets Sold & Entry Rate Data
+    const events = await Event.find({ plannerProfileId: plannerProfile._id });
+    const eventIds = events.map(e => e._id);
+
+    const ticketStats = await TicketType.aggregate([
+      { $match: { eventId: { $in: eventIds } } },
+      { $group: { _id: null, totalSold: { $sum: "$sold" } } }
+    ]);
+    const totalTicketsSold = ticketStats[0]?.totalSold || 0;
+
+    // 3. Active Events
+    const activeEventsCount = await Event.countDocuments({
+      plannerProfileId: plannerProfile._id,
+      endAt: { $gt: now }
+    });
+
+    // 4. Entry Rate (Scanned Persons / Total Persons on Issued Tickets)
+    const scanStats = await Ticket.aggregate([
+      { $match: { eventId: { $in: eventIds } } },
+      {
+        $group: {
+          _id: null,
+          totalPersons: { $sum: "$persons" },
+          totalScanned: { $sum: "$scannedPersons" }
+        }
+      }
+    ]);
+    const totalPersons = scanStats[0]?.totalPersons || 0;
+    const totalScanned = scanStats[0]?.totalScanned || 0;
+    const entryRate = totalPersons > 0 ? (totalScanned / totalPersons) * 100 : 0;
+
+    // Format for Frontend
+    const metrics = [
+      { 
+        label: 'Total Revenue', 
+        value: `₹${totalRevenue.toLocaleString('en-IN')}`, 
+        change: '', // Can be calculated by comparing last month if needed
+        icon: 'DollarSign', 
+        color: 'text-emerald-500', 
+        bg: 'bg-emerald-500/10' 
+      },
+      { 
+        label: 'Tickets Sold', 
+        value: totalTicketsSold.toLocaleString('en-IN'), 
+        change: '', 
+        icon: 'Ticket', 
+        color: 'text-violet-500', 
+        bg: 'bg-violet-500/10' 
+      },
+      { 
+        label: 'Active Events', 
+        value: activeEventsCount.toString(), 
+        change: '', 
+        icon: 'Calendar', 
+        color: 'text-blue-500', 
+        bg: 'bg-blue-500/10' 
+      },
+      { 
+        label: 'Entry Rate', 
+        value: `${entryRate.toFixed(1)}%`, 
+        change: '', 
+        icon: 'Zap', 
+        color: 'text-amber-500', 
+        bg: 'bg-amber-500/10' 
+      },
+    ];
+
+    res.status(200).json({ success: true, data: metrics });
+  } catch (error) {
+    console.error("Error fetching dashboard metrics:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };

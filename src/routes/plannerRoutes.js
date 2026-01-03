@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions, requestWithdrawal, createArtistBooking, checkArtistAvailabilityWithPricing, getPlannerEvents, listMyWithdrawalRequests } from "../controllers/plannerController.js";
+import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions, requestWithdrawal, createArtistBooking, checkArtistAvailabilityWithPricing, getPlannerEvents, listMyWithdrawalRequests, getDashboardRevenue, getDashboardTicketDistribution, getDashboardRecentEvents, getDashboardMetrics } from "../controllers/plannerController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import { createEvent, listEvents, getEventById, updateEvent, deleteEvent, getEventAndId } from "../controllers/eventController.js";
@@ -101,5 +101,11 @@ router.post("/bank-details", checkApiKey, verifyToken, addBankDetail);
 router.get("/bank-details", checkApiKey, verifyToken, getBankDetails);
 router.put("/bank-details/:id", checkApiKey, verifyToken, updateBankDetail);
 router.delete("/bank-details/:id", checkApiKey, verifyToken, deleteBankDetail);
+
+// Dashboard Mock Data
+router.get("/dashboard/revenue", checkApiKey, verifyToken, getDashboardRevenue);
+router.get("/dashboard/ticket-distribution", checkApiKey, verifyToken, getDashboardTicketDistribution);
+router.get("/dashboard/recent-events", checkApiKey, verifyToken, getDashboardRecentEvents);
+router.get("/dashboard/metrics", checkApiKey, verifyToken, getDashboardMetrics);
 
 export default router;

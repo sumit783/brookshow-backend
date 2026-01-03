@@ -828,3 +828,66 @@ export const updateWithdrawalStatus = async (req, res) => {
     return res.status(500).json({ message: e.message });
   }
 };
+
+export const getWithdrawalStats = async (req, res) => {
+  try {
+    const statsData = await WithdrawalRequest.aggregate([
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+          totalAmount: { $sum: "$amount" }
+        }
+      }
+    ]);
+
+    const findStatus = (status) => statsData.find(s => s._id === status) || { count: 0, totalAmount: 0 };
+
+    const pending = findStatus("pending");
+    const processed = findStatus("processed");
+    const rejected = findStatus("rejected");
+    const totalCount = statsData.reduce((acc, curr) => acc + curr.count, 0);
+
+    const formatAmount = (amount) => {
+      if (amount >= 100000) {
+        return `₹${(amount / 100000).toFixed(1)}L`;
+      }
+      return `₹${amount.toLocaleString("en-IN")}`;
+    };
+
+    const stats = [
+      {
+        title: "Total Requests",
+        value: totalCount.toString(),
+        subtitle: "All time requests",
+        icon: "Wallet",
+        variant: "default",
+      },
+      {
+        title: "Pending",
+        value: pending.count.toString(),
+        subtitle: `${formatAmount(pending.totalAmount)} total amount`,
+        icon: "Clock",
+        variant: "primary",
+      },
+      {
+        title: "Approved",
+        value: processed.count.toString(),
+        subtitle: `${formatAmount(processed.totalAmount)} disbursed`,
+        icon: "CheckCircle",
+        variant: "success",
+      },
+      {
+        title: "Rejected",
+        value: rejected.count.toString(),
+        subtitle: "Due to invalid details",
+        icon: "XCircle",
+        variant: "accent",
+      },
+    ];
+
+    return res.status(200).json(stats);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+};
