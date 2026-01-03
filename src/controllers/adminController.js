@@ -7,6 +7,7 @@ import WalletTransaction from "../models/WalletTransaction.js";
 import Ticket from "../models/Ticket.js";
 import MediaItem from "../models/MediaItem.js";
 import WithdrawalRequest from "../models/WithdrawalRequest.js";
+import User from "../models/User.js";
 
 export const getAllArtists = async (req, res) => {
   try {
@@ -684,10 +685,16 @@ export const verifyArtist = async (req, res) => {
     const { id } = req.params;
     const artist = await Artist.findByIdAndUpdate(
       id,
-      { isVerified: true },
+      { isVerified: true, verificationStatus: "verified" },
       { new: true }
     );
     if (!artist) return res.status(404).json({ message: "Artist not found" });
+
+    // Update associated User model
+    if (artist.userId) {
+      await User.findByIdAndUpdate(artist.userId, { isAdminVerified: true });
+    }
+
     return res.status(200).json({ message: "Artist verified", artist });
   } catch (e) {
     return res.status(500).json({ message: e.message });
@@ -701,10 +708,16 @@ export const rejectArtist = async (req, res) => {
     if (!message) return res.status(400).json({ message: "Rejection message is required" });
     const artist = await Artist.findByIdAndUpdate(
       id,
-      { isVerified: false, verificationNote: message || "" },
+      { isVerified: false, verificationStatus: "rejected", verificationNote: message || "" },
       { new: true }
     );
     if (!artist) return res.status(404).json({ message: "Artist not found" });
+
+    // Update associated User model
+    if (artist.userId) {
+      await User.findByIdAndUpdate(artist.userId, { isAdminVerified: false });
+    }
+
     return res.status(200).json({ message: "Artist rejected", artist });
   } catch (e) {
     return res.status(500).json({ message: e.message });
