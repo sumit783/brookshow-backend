@@ -11,7 +11,14 @@ import {
   deleteArtistMedia,
   listCategories,
   listArtistMedia,
+
   requestWithdrawal,
+  getWalletStats,
+  listWalletTransactions,
+  addBankDetail,
+  getBankDetails,
+  updateBankDetail,
+  deleteBankDetail,
 } from "../controllers/artistController.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
@@ -79,6 +86,16 @@ router.post(
   uploadArtistMedia
 );
 router.delete("/profile/media/:id", checkApiKey, verifyToken, deleteArtistMedia);
+
+// Bank Details
+router.post("/bank-details", checkApiKey, verifyToken, addBankDetail);
+router.get("/bank-details", checkApiKey, verifyToken, getBankDetails);
+router.put("/bank-details/:id", checkApiKey, verifyToken, updateBankDetail);
+router.delete("/bank-details/:id", checkApiKey, verifyToken, deleteBankDetail);
+
+// Wallet & Withdrawals
+router.get("/wallet", checkApiKey, verifyToken, getWalletStats);
+router.get("/wallet/transactions", checkApiKey, verifyToken, listWalletTransactions);
 
 // Withdraw Request
 router.post("/withdraw", checkApiKey, verifyToken, requestWithdrawal);

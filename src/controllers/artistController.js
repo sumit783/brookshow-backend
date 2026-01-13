@@ -7,6 +7,7 @@ import Service from "../models/Service.js";
 import Review from "../models/Review.js";
 import WithdrawalRequest from "../models/WithdrawalRequest.js";
 import WalletTransaction from "../models/WalletTransaction.js";
+import BankDetail from "../models/BankDetail.js";
 
 function getBodyField(value) {
   if (typeof value === "string") {
@@ -325,10 +326,80 @@ export const getArtistDetailsById = async (req, res) => {
   }
 };
 
+// Get Wallet Stats
+export const getWalletStats = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const artist = await Artist.findOne({ userId }).select("wallet");
+
+    if (!artist) {
+      return res.status(404).json({ success: false, message: "Artist profile not found" });
+    }
+
+    const stats = await WalletTransaction.aggregate([
+      {
+        $match: {
+          ownerId: artist._id,
+          ownerType: "artist"
+        }
+      },
+      {
+        $group: {
+          _id: "$type",
+          total: { $sum: "$amount" }
+        }
+      }
+    ]);
+
+    let totalIncome = 0;
+    let totalWithdrawn = 0;
+
+    stats.forEach(stat => {
+      if (stat._id === "credit") {
+        totalIncome = stat.total;
+      } else if (stat._id === "debit") {
+        // Adjust logic if needed: debit includes withdrawals and other deductions?
+        // Usually withdrawals + adjustments. For now summing all debits as "withdrawn/spent"
+        totalWithdrawn = stat.total;
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      balance: artist.wallet.balance, // accessing nested wallet object
+      totalIncome,
+      totalWithdrawn
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// List Wallet Transactions
+export const listWalletTransactions = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const artist = await Artist.findOne({ userId }).select("_id");
+
+    if (!artist) {
+      return res.status(404).json({ success: false, message: "Artist profile not found" });
+    }
+
+    const transactions = await WalletTransaction.find({ 
+      ownerId: artist._id, 
+      ownerType: "artist" 
+    }).sort({ createdAt: -1 });
+
+    return res.status(200).json({ success: true, transactions });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 export const requestWithdrawal = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { amount, bankDetails } = req.body;
+    const { amount } = req.body;
 
     if (!amount || isNaN(amount) || amount <= 0) {
       return res.status(400).json({ success: false, message: "Invalid amount" });
@@ -339,12 +410,21 @@ export const requestWithdrawal = async (req, res) => {
       return res.status(404).json({ success: false, message: "Artist profile not found" });
     }
 
-    if (artist.walletBalance < amount) {
+    // Fix: Access wallet.balance instead of walletBalance
+    if (artist.wallet.balance < amount) {
       return res.status(400).json({ success: false, message: "Insufficient balance" });
     }
 
+    // Fetch Bank Details
+    const bankDetailsList = await BankDetail.find({ userId }).sort({ isPrimary: -1 });
+    if (!bankDetailsList || bankDetailsList.length === 0) {
+      return res.status(400).json({ success: false, message: "Please add bank details first" });
+    }
+    // Use primary or first available
+    const selectedBankDetail = bankDetailsList[0];
+
     // Deduct balance
-    artist.walletBalance -= amount;
+    artist.wallet.balance -= amount;
     await artist.save();
 
     // Create Transaction
@@ -363,7 +443,13 @@ export const requestWithdrawal = async (req, res) => {
       userId: userId,
       userType: "artist",
       amount,
-      bankDetails,
+      bankDetails: {
+        accountHolder: selectedBankDetail.accountHolderName,
+        accountNumber: selectedBankDetail.accountNumber,
+        bankName: selectedBankDetail.bankName,
+        ifscCode: selectedBankDetail.ifscCode,
+        upiId: selectedBankDetail.upiId
+      },
       transactionId: transaction._id
     });
 
@@ -371,11 +457,96 @@ export const requestWithdrawal = async (req, res) => {
       success: true,
       message: "Withdrawal request created successfully",
       withdrawalRequest,
-      newBalance: artist.walletBalance
+      newBalance: artist.wallet.balance
     });
-
   } catch (err) {
     console.error("requestWithdrawal error:", err);
     return res.status(500).json({ success: false, message: "Failed to process withdrawal request" });
+  }
+};
+
+// Bank Details CRUD
+
+// Add Bank Detail
+export const addBankDetail = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { accountHolderName, accountNumber, bankName, ifscCode, upiId, isPrimary } = req.body;
+
+    // Validation: Require either (full bank details) OR (UPI ID)
+    const hasBankDetails = accountNumber && bankName && ifscCode && accountHolderName;
+    const hasUpi = !!upiId;
+
+    if (!hasBankDetails && !hasUpi) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Please provide either full bank details (Account No, Name, IFSC, Holder Name) or a UPI ID" 
+      });
+    }
+
+    const bankDetail = await BankDetail.create({
+      userId,
+      accountHolderName,
+      accountNumber,
+      bankName,
+      ifscCode,
+      upiId,
+      isPrimary: isPrimary || false
+    });
+
+    return res.status(201).json({ success: true, message: "Bank detail added", bankDetail });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Get Bank Details
+export const getBankDetails = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const bankDetails = await BankDetail.find({ userId }).sort({ isPrimary: -1, createdAt: -1 });
+    return res.status(200).json({ success: true, bankDetails });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Update Bank Detail
+export const updateBankDetail = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const updates = req.body;
+
+    const bankDetail = await BankDetail.findOne({ _id: id, userId });
+    
+    if (!bankDetail) {
+      return res.status(404).json({ success: false, message: "Bank detail not found" });
+    }
+
+    Object.assign(bankDetail, updates);
+    await bankDetail.save();
+
+    return res.status(200).json({ success: true, message: "Bank detail updated", bankDetail });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Delete Bank Detail
+export const deleteBankDetail = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    const bankDetail = await BankDetail.findOneAndDelete({ _id: id, userId });
+
+    if (!bankDetail) {
+      return res.status(404).json({ success: false, message: "Bank detail not found" });
+    }
+
+    return res.status(200).json({ success: true, message: "Bank detail deleted" });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
   }
 };

@@ -78,7 +78,7 @@ app.use("/api", limiter);
 app.use("/api", verifyXApiKey);
 
 // API Routes
-app.get("/", (req, res) => res.send("🚀 BrookShow API is running"));
+app.get("/", (req, res) => res.send("BrookShow API is running"));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/artist", artistRoutes);
