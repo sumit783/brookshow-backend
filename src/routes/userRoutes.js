@@ -2,6 +2,7 @@ import express from "express";
 import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, getTicketById, getUserProfile, createArtistBooking, getArtistPrice, getTicketTypesByEvent } from "../controllers/userController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
+import {updateBookingStatus} from "../controllers/bookingController.js";
 
 const router = express.Router();
 
@@ -46,6 +47,8 @@ router.get("/ticket/:id", checkApiKey, verifyToken, getTicketById);
 
 // Get user profile and history (requires authentication)
 router.get("/profile", checkApiKey, verifyToken, getUserProfile);
+
+router.patch("/bookings/:id/status", checkApiKey, verifyToken, updateBookingStatus);
 
 export default router;
 

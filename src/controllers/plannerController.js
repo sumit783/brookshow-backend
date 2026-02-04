@@ -10,6 +10,7 @@ import Booking from "../models/Booking.js";
 import Artist from "../models/Artist.js";
 import Service from "../models/Service.js";
 import BankDetail from "../models/BankDetail.js";
+import CalendarBlock from "../models/CalendarBlock.js";
 import mongoose from "mongoose";
 
 export const createPlannerProfile = async (req, res) => {
@@ -720,6 +721,17 @@ export const createArtistBooking = async (req, res) => {
       .populate("artistId", "userId bio category location")
       .populate("serviceId", "category unit price_for_planner")
       .populate("eventId", "title startAt endAt");
+
+    // Create a calendar block for the artist booking
+    await CalendarBlock.create({
+      artistId: artistId,
+      startDate: startDate,
+      endDate: endDate,
+      type: "onlineBooking",
+      title: populatedBooking?.eventId?.title || `Planner Booking - ${service.category}`,
+      linkedBookingId: booking._id,
+      createdBy: plannerUserId,
+    });
 
     return res.status(201).json({
       success: true,

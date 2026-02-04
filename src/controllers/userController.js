@@ -393,7 +393,7 @@ export const getSimilarArtists = async (req, res) => {
 
 export const checkArtistAvailability = async (req, res) => {
   try {
-    const { artistId, serviceId, date, startTime } = req.query;
+    const { artistId, serviceId, date, startTime, endDate, endTime } = req.query;
 
     // Validate required fields
     if (!artistId) {
@@ -410,6 +410,14 @@ export const checkArtistAvailability = async (req, res) => {
 
     if (!startTime) {
       return res.status(400).json({ success: false, message: "Start time is required" });
+    }
+
+    if (!endDate) {
+      return res.status(400).json({ success: false, message: "End date is required" });
+    }
+
+    if (!endTime) {
+      return res.status(400).json({ success: false, message: "End time is required" });
     }
 
     // Validate MongoDB ObjectId format
@@ -434,42 +442,47 @@ export const checkArtistAvailability = async (req, res) => {
     }
 
     // Parse date and time to create start and end datetime objects
-    const requestedDate = new Date(date);
-    if (isNaN(requestedDate.getTime())) {
+    const requestedStartDate = new Date(date);
+    if (isNaN(requestedStartDate.getTime())) {
       return res.status(400).json({ success: false, message: "Invalid date format. Use YYYY-MM-DD" });
     }
 
-    // Parse time strings (expected format: "HH:MM" or "HH:MM:SS")
-    const [startHour, startMinute] = startTime.split(':').map(Number);
+    const requestedEndDate = new Date(endDate);
+    if (isNaN(requestedEndDate.getTime())) {
+      return res.status(400).json({ success: false, message: "Invalid end date format. Use YYYY-MM-DD" });
+    }
 
+    // Parse time strings (expected format: "HH:MM")
+    const [startHour, startMinute] = startTime.split(':').map(Number);
     if (isNaN(startHour) || isNaN(startMinute)) {
-      return res.status(400).json({ success: false, message: "Invalid time format. Use HH:MM" });
+      return res.status(400).json({ success: false, message: "Invalid start time format. Use HH:MM" });
+    }
+
+    const [endHour, endMinute] = endTime.split(':').map(Number);
+    if (isNaN(endHour) || isNaN(endMinute)) {
+      return res.status(400).json({ success: false, message: "Invalid end time format. Use HH:MM" });
     }
 
     // Create start and end datetime objects
-    const requestedStartAt = new Date(requestedDate);
+    const requestedStartAt = new Date(requestedStartDate);
     requestedStartAt.setHours(startHour, startMinute, 0, 0);
+
+    const requestedEndAt = new Date(requestedEndDate);
+    requestedEndAt.setHours(endHour, endMinute, 0, 0);
+
+    // Ensure end time is after start time
+    if (requestedEndAt <= requestedStartAt) {
+      return res.status(400).json({ success: false, message: "End time must be after start time" });
+    }
 
     // Check for conflicting bookings
     // A booking conflicts if it overlaps with the requested time range
+    // Overlap formula: (start1 < end2) AND (end1 > start2)
     const conflictingBookings = await Booking.find({
       artistId: artistId,
       status: { $in: ["pending", "confirmed"] }, // Only check active bookings
-      $or: [
-        // Case 1: Existing booking starts during requested time
-        {
-          startAt: { $gte: requestedStartAt }
-        },
-        // Case 2: Existing booking ends during requested time
-        {
-          endAt: { $gt: requestedStartAt }
-        },
-        // Case 3: Existing booking completely encompasses requested time
-        {
-          startAt: { $lte: requestedStartAt },
-          endAt: { $gte: requestedStartAt }
-        }
-      ]
+      startAt: { $lt: requestedEndAt },
+      endAt: { $gt: requestedStartAt }
     }).populate('serviceId', 'category unit');
 
     const isAvailable = conflictingBookings.length === 0;
@@ -488,9 +501,12 @@ export const checkArtistAvailability = async (req, res) => {
         unit: service.unit
       },
       requestedTime: {
-        date: requestedDate.toISOString().split('T')[0],
+        startDate: requestedStartDate.toISOString().split('T')[0],
         startTime: startTime,
         startAt: requestedStartAt.toISOString(),
+        endDate: requestedEndDate.toISOString().split('T')[0],
+        endTime: endTime,
+        endAt: requestedEndAt.toISOString(),
       }
     };
 

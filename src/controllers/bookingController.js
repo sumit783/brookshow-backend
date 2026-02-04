@@ -83,3 +83,48 @@ export const getBookingById = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+export const updateBookingStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    // Validate status
+    const allowedStatuses = ["pending", "confirmed", "completed", "cancelled"];
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}`,
+      });
+    }
+
+    // Get the artist ID associated with the logged-in user
+    const userId = req.user.id || req.user.userId;
+    const artist = await Artist.findOne({ userId });
+
+    if (!artist) {
+      return res.status(404).json({ success: false, message: "Artist profile not found" });
+    }
+
+    // Find the booking and ensure it belongs to this artist
+    const booking = await Booking.findOne({ _id: id, artistId: artist._id });
+
+    if (!booking) {
+      return res.status(404).json({
+        success: false,
+        message: "Booking not found or you are not authorized to update it",
+      });
+    }
+
+    // Update the status
+    booking.status = status;
+    await booking.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Booking status updated to ${status}`,
+      booking,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
