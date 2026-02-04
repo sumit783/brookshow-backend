@@ -12,6 +12,7 @@ import WalletTransaction from "../models/WalletTransaction.js";
 import mongoose from "mongoose";
 import QRCode from "qrcode";
 import CalendarBlock from "../models/CalendarBlock.js";
+import Commission from "../models/Commission.js";
 
 export const getTopArtists = async (req, res) => {
   try {
@@ -1075,7 +1076,7 @@ export const buyTicket = async (req, res) => {
 
     // Create wallet transaction record
     await WalletTransaction.create({
-      ownerId: plannerProfile.userId, // Using the user ID of the planner
+      ownerId: plannerProfile._id, // Standardized: Using Profile ID
       ownerType: "planner",
       type: "credit",
       amount: totalPrice,
@@ -1104,6 +1105,7 @@ export const createArtistBooking = async (req, res) => {
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
     const { artistId } = req.params;
+    const {advanceAmount,totalPrice,paidAmount} = req.body;
     if (!mongoose.Types.ObjectId.isValid(artistId)) {
       return res.status(400).json({ success: false, message: "Invalid artist ID format" });
     }
@@ -1126,6 +1128,10 @@ export const createArtistBooking = async (req, res) => {
       serviceId: serviceId,
       status: "confirmed",
       source:"user",
+      advanceAmount:advanceAmount,
+      totalPrice:totalPrice,
+      paidAmount:paidAmount,
+      paymentStatus:"advance",
       startAt:startDate,
       endAt:endDate
     });
@@ -1140,7 +1146,39 @@ export const createArtistBooking = async (req, res) => {
       createdBy: userId,
     });
 
-    return res.status(201).json({ success: true, booking });
+    // 💰 Handle Commission and Artist Wallet Update
+    const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
+    const commissionPercent = commissionSettings ? commissionSettings.artistBookingCommission : 0;
+    
+    // Calculate commission on TOTAL PRICE
+    const commissionValue = (totalPrice * commissionPercent) / 100;
+    
+    // Deduct commission from PAID AMOUNT (advance) to get net artist credit
+    const artistNetCredit = paidAmount - commissionValue;
+
+    // Update Artist Wallet
+    artist.wallet = artist.wallet || { balance: 0, pendingAmount: 0, transactions: [] };
+    artist.wallet.balance += artistNetCredit;
+    await artist.save();
+
+    // Create Wallet Transaction for Artist
+    await WalletTransaction.create({
+      ownerId: artist._id, // Standardized: Using Profile ID
+      ownerType: "artist",
+      type: "credit",
+      amount: artistNetCredit,
+      source: "booking",
+      referenceId: booking._id.toString(),
+      description: `Advance payment for booking: ${eventName} (Total: ${totalPrice}, Paid: ${paidAmount}, Commission: ${commissionValue})`,
+      status: "completed"
+    });
+
+    return res.status(201).json({ 
+      success: true, 
+      booking,
+      commissionDeducted: commissionValue,
+      artistCredited: artistNetCredit
+    });
   } catch (err) {
     console.error("createArtistBooking error:", err);
     return res.status(500).json({ success: false, message: err.message });
@@ -1242,19 +1280,23 @@ export const getArtistPrice = async (req, res) => {
       return res.status(400).json({ success: false, message: "Service price is not set" });
     }
 
-    // Calculate price based on unit type
+    // Calculate price and advance based on unit type
     let price = basePrice;
+    let calculatedAdvance = service.advance || 0;
     const diffMs = end - start;
 
     if (service.unit === "hour") {
       const hours = Math.ceil(diffMs / (1000 * 60 * 60));
       price = basePrice * hours;
+      calculatedAdvance = (service.advance || 0) * hours;
     } else if (service.unit === "day") {
       const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
       price = basePrice * days;
+      calculatedAdvance = (service.advance || 0) * days;
     } else if (service.unit === "event") {
       // For "event" unit, price is fixed per event regardless of duration
       price = basePrice;
+      calculatedAdvance = service.advance || 0;
     } else {
       return res.status(400).json({ success: false, message: `Unsupported service unit: ${service.unit}` });
     }
@@ -1266,7 +1308,7 @@ export const getArtistPrice = async (req, res) => {
       price: Math.round(price * 100) / 100, // Round to 2 decimal places
       unit: service.unit,
       basePrice: basePrice,
-      advance: service.advance || 0,
+      advance: Math.round(calculatedAdvance * 100) / 100,
       duration: {
         start: start.toISOString(),
         end: end.toISOString(),
@@ -1453,6 +1495,72 @@ export const getTicketTypesByEvent = async (req, res) => {
     });
   } catch (error) {
     console.error("Get ticket types error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getUserBookings = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "User ID not found in token" });
+    }
+
+    const bookings = await Booking.find({ clientId: userId })
+      .populate({
+        path: "artistId",
+        populate: {
+          path: "userId",
+          select: "displayName email phone profileImage"
+        }
+      })
+      .populate("serviceId")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      count: bookings.length,
+      bookings
+    });
+  } catch (error) {
+    console.error("Get user bookings error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getUserBookingById = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user.userId;
+    const { id } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "User ID not found in token" });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid booking ID format" });
+    }
+
+    const booking = await Booking.findOne({ _id: id, clientId: userId })
+      .populate({
+        path: "artistId",
+        populate: {
+          path: "userId",
+          select: "displayName email phone profileImage"
+        }
+      })
+      .populate("serviceId");
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: "Booking not found or unauthorized" });
+    }
+
+    res.status(200).json({
+      success: true,
+      booking
+    });
+  } catch (error) {
+    console.error("Get user booking by ID error:", error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

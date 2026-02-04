@@ -10,8 +10,10 @@ const bookingSchema = new mongoose.Schema(
     startAt: Date,
     endAt: Date,
     totalPrice: Number,
+    paidAmount: Number,
+    advanceAmount: Number,
     status: { type: String, enum: ["pending", "confirmed", "completed", "cancelled"], default: "pending" },
-    paymentStatus: { type: String, enum: ["unpaid", "authorized", "paid", "refunded"], default: "unpaid" }
+    paymentStatus: { type: String, enum: ["unpaid","advance", "authorized", "paid", "refunded"], default: "unpaid" }
   },
   { timestamps: true }
 );
