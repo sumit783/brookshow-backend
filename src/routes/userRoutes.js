@@ -1,5 +1,5 @@
 import express from "express";
-import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, getTicketById, getUserProfile, createArtistBooking, verifyArtistBookingPayment, getArtistPrice, getTicketTypesByEvent, getUserBookings, getUserBookingById } from "../controllers/userController.js";
+import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, verifyTicketPayment, getTicketById, getUserProfile, createArtistBooking, verifyArtistBookingPayment, getArtistPrice, getTicketTypesByEvent, getUserBookings, getUserBookingById } from "../controllers/userController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import {updateBookingStatus} from "../controllers/bookingController.js";
@@ -36,8 +36,9 @@ router.get("/artist/:id", checkApiKey, getArtistById);
 // Create or update review for an artist (requires authentication)
 router.post("/review", checkApiKey, verifyToken, createReview);
 
-// Buy ticket (requires authentication) - direct wallet update
+// Buy ticket (requires authentication)
 router.post("/buy-ticket", checkApiKey, verifyToken, buyTicket);
+router.post("/buy-ticket/verify", checkApiKey, verifyToken, verifyTicketPayment);
 // Artist booking route
 router.post("/artist/:artistId/book", checkApiKey, verifyToken, createArtistBooking);
 router.post("/artist/booking/verify", checkApiKey, verifyToken, verifyArtistBookingPayment);

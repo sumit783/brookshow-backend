@@ -1087,36 +1087,93 @@ export const buyTicket = async (req, res) => {
     // Save the ticket
     await ticket.save();
 
-    // Update ticket type sold count
-    ticketType.sold += quantity;
-    await ticketType.save();
-
-    // Update planner's wallet balance
-    plannerProfile.walletBalance += totalPrice;
-    await plannerProfile.save();
-
-    // Create wallet transaction record
-    await WalletTransaction.create({
-      ownerId: plannerProfile._id, // Standardized: Using Profile ID
-      ownerType: "planner",
-      type: "credit",
-      amount: totalPrice,
-      source: "booking", // Using booking as closest match
-      referenceId: ticket._id.toString(),
-      description: `Ticket sale for ${event.title} (${quantity} qty)`,
-      status: "completed"
-    });
+    // Create Razorpay Order
+    const razorpayOrder = await createOrder(totalPrice, ticket._id.toString());
+    
+    // Update ticket with Razorpay Order ID
+    ticket.razorpayOrderId = razorpayOrder.id;
+    await ticket.save();
 
     res.status(201).json({
       success: true,
-      message: "Ticket purchased successfully",
+      message: "Order created successfully",
       ticket,
-      walletUpdated: true
+      razorpayOrder: {
+        id: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency
+      }
     });
 
   } catch (error) {
     console.error("Buy ticket error:", error);
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const verifyTicketPayment = async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ success: false, message: "Missing Razorpay payment details" });
+    }
+
+    const isVerified = verifySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+
+    if (!isVerified) {
+      return res.status(400).json({ success: false, message: "Payment verification failed" });
+    }
+
+    const ticket = await Ticket.findOne({ razorpayOrderId: razorpay_order_id });
+    if (!ticket) {
+      return res.status(404).json({ success: false, message: "Ticket not found" });
+    }
+
+    if (ticket.paymentStatus === "paid") {
+      return res.status(200).json({ success: true, message: "Payment already verified", ticket });
+    }
+
+    // Update ticket status
+    ticket.paymentStatus = "paid";
+    ticket.isValide = true;
+    ticket.razorpayPaymentId = razorpay_payment_id;
+    ticket.razorpaySignature = razorpay_signature;
+    await ticket.save();
+
+    const ticketType = await TicketType.findById(ticket.ticketTypeId);
+    const event = await Event.findById(ticket.eventId);
+    const plannerProfile = await PlannerProfile.findById(event.plannerProfileId);
+
+    // Update ticket type sold count
+    ticketType.sold += ticket.persons;
+    await ticketType.save();
+
+    // Update planner's wallet balance
+    const totalPrice = ticketType.price * ticket.persons;
+    plannerProfile.walletBalance += totalPrice;
+    await plannerProfile.save();
+
+    // Create wallet transaction record
+    await WalletTransaction.create({
+      ownerId: plannerProfile._id,
+      ownerType: "planner",
+      type: "credit",
+      amount: totalPrice,
+      source: "booking",
+      referenceId: ticket._id.toString(),
+      description: `Ticket sale for ${event.title} (${ticket.persons} qty)`,
+      status: "completed"
+    });
+
+    return res.status(200).json({ 
+      success: true, 
+      message: "Payment verified and ticket finalized",
+      ticket
+    });
+  } catch (err) {
+    console.error("verifyTicketPayment error:", err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 

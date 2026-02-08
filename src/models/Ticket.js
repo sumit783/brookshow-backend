@@ -15,6 +15,10 @@ const ticketSchema = new mongoose.Schema(
     issuedAt: Date,
     scanned: { type: Boolean, default: false },
     scannedAt: { type: Date, default: null },
+    razorpayOrderId: { type: String },
+    razorpayPaymentId: { type: String },
+    razorpaySignature: { type: String },
+    paymentStatus: { type: String, enum: ["unpaid", "paid"], default: "unpaid" }
   },
   { timestamps: true }
 );
