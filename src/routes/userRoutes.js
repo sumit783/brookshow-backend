@@ -1,5 +1,5 @@
 import express from "express";
-import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, getTicketById, getUserProfile, createArtistBooking, verifyArtistBookingPayment, testConfirmBooking, getArtistPrice, getTicketTypesByEvent, getUserBookings, getUserBookingById } from "../controllers/userController.js";
+import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, getTicketById, getUserProfile, createArtistBooking, verifyArtistBookingPayment, getArtistPrice, getTicketTypesByEvent, getUserBookings, getUserBookingById } from "../controllers/userController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import {updateBookingStatus} from "../controllers/bookingController.js";
