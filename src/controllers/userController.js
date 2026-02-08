@@ -13,6 +13,7 @@ import mongoose from "mongoose";
 import QRCode from "qrcode";
 import CalendarBlock from "../models/CalendarBlock.js";
 import Commission from "../models/Commission.js";
+import { createOrder, verifySignature } from "../utils/razorpay.js";
 
 export const getTopArtists = async (req, res) => {
   try {
@@ -486,7 +487,14 @@ export const checkArtistAvailability = async (req, res) => {
       endAt: { $gt: requestedStartAt }
     }).populate('serviceId', 'category unit');
 
-    const isAvailable = conflictingBookings.length === 0;
+    // Check for calendar blocks that might block the time
+    const conflictingBlocks = await CalendarBlock.find({
+      artistId: artistId,
+      startDate: { $lt: requestedEndAt },
+      endDate: { $gt: requestedStartAt }
+    });
+
+    const isAvailable = conflictingBookings.length === 0 && conflictingBlocks.length === 0;
 
     // Format response
     const response = {
@@ -512,14 +520,27 @@ export const checkArtistAvailability = async (req, res) => {
     };
 
     if (!isAvailable) {
-      response.conflictingBookings = conflictingBookings.map(booking => ({
-        id: booking._id,
-        startAt: booking.startAt,
-        endAt: booking.endAt,
-        service: booking.serviceId?.category || "Unknown",
-        status: booking.status
-      }));
       response.message = "Artist is not available for the requested time slot";
+      
+      if (conflictingBookings.length > 0) {
+        response.conflictingBookings = conflictingBookings.map(booking => ({
+          id: booking._id,
+          startAt: booking.startAt,
+          endAt: booking.endAt,
+          service: booking.serviceId?.category || "Unknown",
+          status: booking.status
+        }));
+      }
+
+      if (conflictingBlocks.length > 0) {
+        response.conflictingBlocks = conflictingBlocks.map(block => ({
+          id: block._id,
+          startDate: block.startDate,
+          endDate: block.endDate,
+          type: block.type,
+          title: block.title
+        }));
+      }
     } else {
       response.message = "Artist is available for the requested time slot";
     }
@@ -1105,11 +1126,10 @@ export const createArtistBooking = async (req, res) => {
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
     const { artistId } = req.params;
-    const {advanceAmount,totalPrice,paidAmount} = req.body;
+    const {serviceId,startDate,endDate,eventName,advanceAmount,totalPrice,paidAmount} = req.body;
     if (!mongoose.Types.ObjectId.isValid(artistId)) {
       return res.status(400).json({ success: false, message: "Invalid artist ID format" });
     }
-    const {serviceId,startDate,endDate,eventName} = req.body;
     if(!serviceId || !startDate || !endDate || !eventName){
       return res.status(400).json({success:false,message:"serviceId, startDate, endDate, event name are requaired"})
     }
@@ -1122,26 +1142,82 @@ export const createArtistBooking = async (req, res) => {
       return res.status(404).json({ success: false, message: "Artist not found" });
     }
 
-    const booking = await Booking.create({
+    const booking = new Booking({
       clientId: userId,
       artistId: artist._id,
       serviceId: serviceId,
-      status: "confirmed",
+      status: "pending",
       source:"user",
       advanceAmount:advanceAmount,
       totalPrice:totalPrice,
       paidAmount:paidAmount,
-      paymentStatus:"advance",
+      paymentStatus: "unpaid",
       startAt:startDate,
       endAt:endDate
     });
+
+    // Create Razorpay Order
+    const razorpayOrder = await createOrder(paidAmount, booking._id.toString());
+    
+    // Update booking with Razorpay Order ID
+    booking.razorpayOrderId = razorpayOrder.id;
+    await booking.save();
+
+    return res.status(201).json({ 
+      success: true, 
+      booking,
+      razorpayOrder: {
+        id: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency
+      }
+    });
+  } catch (err) {
+    console.error("createArtistBooking error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const verifyArtistBookingPayment = async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ success: false, message: "Missing Razorpay payment details" });
+    }
+
+    const isVerified = verifySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+
+    if (!isVerified) {
+      return res.status(400).json({ success: false, message: "Payment verification failed" });
+    }
+
+    const booking = await Booking.findOne({ razorpayOrderId: razorpay_order_id });
+    if (!booking) {
+      return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+
+    if (booking.paymentStatus === "advance") {
+      return res.status(200).json({ success: true, message: "Payment already verified", booking });
+    }
+
+    // Update booking status
+    booking.status = "confirmed";
+    booking.paymentStatus = "advance";
+    booking.razorpayPaymentId = razorpay_payment_id;
+    booking.razorpaySignature = razorpay_signature;
+    await booking.save();
+
+    const artist = await Artist.findById(booking.artistId);
+    const userId = booking.clientId;
+
     // Create a calendar block for the artist booking
     await CalendarBlock.create({
       artistId: artist._id,
-      startDate: startDate,
-      endDate: endDate,
+      startDate: booking.startAt,
+      endDate: booking.endAt,
       type: "onlineBooking",
-      title: eventName,
+      title: "Confirmed Booking", // We might want to store eventName in Booking model too if needed
       linkedBookingId: booking._id,
       createdBy: userId,
     });
@@ -1151,10 +1227,10 @@ export const createArtistBooking = async (req, res) => {
     const commissionPercent = commissionSettings ? commissionSettings.artistBookingCommission : 0;
     
     // Calculate commission on TOTAL PRICE
-    const commissionValue = (totalPrice * commissionPercent) / 100;
+    const commissionValue = (booking.totalPrice * commissionPercent) / 100;
     
     // Deduct commission from PAID AMOUNT (advance) to get net artist credit
-    const artistNetCredit = paidAmount - commissionValue;
+    const artistNetCredit = booking.paidAmount - commissionValue;
 
     // Update Artist Wallet
     artist.wallet = artist.wallet || { balance: 0, pendingAmount: 0, transactions: [] };
@@ -1163,24 +1239,25 @@ export const createArtistBooking = async (req, res) => {
 
     // Create Wallet Transaction for Artist
     await WalletTransaction.create({
-      ownerId: artist._id, // Standardized: Using Profile ID
+      ownerId: artist._id,
       ownerType: "artist",
       type: "credit",
       amount: artistNetCredit,
       source: "booking",
       referenceId: booking._id.toString(),
-      description: `Advance payment for booking: ${eventName} (Total: ${totalPrice}, Paid: ${paidAmount}, Commission: ${commissionValue})`,
+      description: `Advance payment for booking (Total: ${booking.totalPrice}, Paid: ${booking.paidAmount}, Commission: ${commissionValue})`,
       status: "completed"
     });
 
-    return res.status(201).json({ 
+    return res.status(200).json({ 
       success: true, 
+      message: "Payment verified and booking confirmed",
       booking,
       commissionDeducted: commissionValue,
       artistCredited: artistNetCredit
     });
   } catch (err) {
-    console.error("createArtistBooking error:", err);
+    console.error("verifyArtistBookingPayment error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };
