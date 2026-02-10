@@ -1,5 +1,5 @@
 import express from "express";
-import { getTopArtists, createReview, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, verifyTicketPayment, getTicketById, getUserProfile, createArtistBooking, verifyArtistBookingPayment, getArtistPrice, getTicketTypesByEvent, getUserBookings, getUserBookingById } from "../controllers/userController.js";
+import { getTopArtists, createReview, getArtistReviews, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, verifyTicketPayment, getTicketById, getUserProfile, createArtistBooking, verifyArtistBookingPayment, getArtistPrice, getTicketTypesByEvent, getUserBookings, getUserBookingById } from "../controllers/userController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import {updateBookingStatus} from "../controllers/bookingController.js";
@@ -35,6 +35,9 @@ router.get("/artist/:id", checkApiKey, getArtistById);
 
 // Create or update review for an artist (requires authentication)
 router.post("/review", checkApiKey, verifyToken, createReview);
+
+// Get reviews for an artist (public route, no auth required)
+router.get("/artist/:artistId/reviews", checkApiKey, getArtistReviews);
 
 // Buy ticket (requires authentication)
 router.post("/buy-ticket", checkApiKey, verifyToken, buyTicket);

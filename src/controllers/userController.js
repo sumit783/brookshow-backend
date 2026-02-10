@@ -1698,3 +1698,45 @@ export const getUserBookingById = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+export const getArtistReviews = async (req, res) => {
+  try {
+    const { artistId } = req.params;
+
+    // Validate MongoDB ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(artistId)) {
+      return res.status(400).json({ success: false, message: "Invalid artist ID format" });
+    }
+
+    // Check if artist exists
+    const artist = await Artist.findById(artistId);
+    if (!artist) {
+      return res.status(404).json({ success: false, message: "Artist not found" });
+    }
+
+    // Fetch all reviews for this artist, populated with client display name
+    const reviews = await Review.find({ artistId: artistId })
+      .populate("clientId", "displayName profileImage")
+      .sort({ createdAt: -1 });
+
+    const totalReviews = reviews.length;
+
+    res.status(200).json({
+      success: true,
+      artistId,
+      totalReviews,
+      reviews: reviews.map((review) => ({
+        id: review._id,
+        clientId: review.clientId?._id,
+        clientName: review.clientId?.displayName || "Anonymous",
+        clientImage: review.clientId?.profileImage || "",
+        rating: review.rating,
+        message: review.message,
+        date: review.createdAt,
+      })),
+    });
+  } catch (error) {
+    console.error("Get artist reviews error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
