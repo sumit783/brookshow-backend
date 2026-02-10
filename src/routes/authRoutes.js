@@ -1,6 +1,7 @@
 import express from "express";
-import { requestLoginOtp, requestEmailOtp, requestPhoneOtp, registerUser, verifyEmailOtp, verifyPhoneOtp, verifyRegistrationOtp, adminLogin ,adminLogout } from "../controllers/authController.js";
+import { requestLoginOtp, requestEmailOtp, requestPhoneOtp, registerUser, verifyEmailOtp, verifyPhoneOtp, verifyRegistrationOtp, adminLogin ,adminLogout, updateUserInfo } from "../controllers/authController.js";
 import {checkApiKey} from "../middlewares/apiKeyMiddleware.js"
+import { verifyToken } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
@@ -28,6 +29,9 @@ router.post("/verify-phone-otp",checkApiKey, verifyPhoneOtp);
 router.post("/admin-login",checkApiKey, adminLogin);
 
 router.post("/logout",checkApiKey, adminLogout);
+
+// Update user info
+router.put("/update-user", checkApiKey, verifyToken, updateUserInfo);
 
 export default router;
 

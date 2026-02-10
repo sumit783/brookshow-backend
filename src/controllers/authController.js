@@ -339,3 +339,54 @@ export const adminLogout = async (req, res) => {
   }
 };
 
+export const updateUserInfo = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { displayName, email, phone, countryCode } = req.body;
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (displayName) user.displayName = displayName;
+    if (countryCode) user.countryCode = countryCode;
+
+    if (email && email !== user.email) {
+      const existingEmail = await User.findOne({ email });
+      if (existingEmail) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Email already in use" });
+      }
+      user.email = email;
+      user.isEmailVerified = false; // Require re-verification
+    }
+
+    if (phone && phone !== user.phone) {
+      const existingPhone = await User.findOne({ phone });
+      if (existingPhone) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Phone already in use" });
+      }
+      user.phone = phone;
+      user.isPhoneVerified = false; // Require re-verification
+    }
+
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "User info updated successfully",
+      user,
+    });
+  } catch (error) {
+    console.error("updateUserInfo error:", error.message);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to update user info" });
+  }
+};
+

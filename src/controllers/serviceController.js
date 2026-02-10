@@ -4,7 +4,7 @@ import Artist from "../models/Artist.js";
 export const getServiceById = async (req, res) => {
   try {
     const { id } = req.params;
-    const service = await Service.findById(id).select("-artistProfileId");
+    const service = await Service.findById(id).select("-artistId");
     if (!service) {
       return res.status(404).json({ success: false, message: "Service not found" });
     }

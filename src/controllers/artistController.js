@@ -104,7 +104,7 @@ export const updateArtistProfile = async (req, res) => {
         if (updates.eventPricing[categoryName]) {
           const serviceData = updates.eventPricing[categoryName];
           await Service.findOneAndUpdate(
-            { artistProfileId: artist._id, category: categoryName },
+            { artistId: artist._id, category: categoryName },
             {
               unit: serviceData.unit || "day",
               price_for_user: serviceData.price_for_user,
