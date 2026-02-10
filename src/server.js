@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import app from "./app.js";
 import mongoose from "mongoose";
 import { dropLegacyArtistIndexes } from "./models/Artist.js";
+import { initCronJobs } from "./utils/cronJobs.js";
 
 dotenv.config();
 
@@ -22,6 +23,7 @@ async function startServer() {
     console.log(`✅ MongoDB connected to database: ${DB_NAME}`);
 
     await dropLegacyArtistIndexes();
+    initCronJobs();
 
     const server = http.createServer(app);
     server.listen(PORT, () => {
