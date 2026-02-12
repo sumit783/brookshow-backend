@@ -16,7 +16,7 @@ export const corsOptions = {
       return callback(null, true);
     }
 
-    console.warn(`❌ CORS blocked request from origin: ${origin}`);
+    console.warn(`CORS blocked request from origin: ${origin}`);
     return callback(new Error("Not allowed by CORS"));
   },
   credentials: true,

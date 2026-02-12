@@ -42,7 +42,7 @@ export const expirePastEvents = async () => {
  * Initializes the background jobs.
  */
 export const initCronJobs = () => {
-  console.log("⏲️ Initializing background jobs...");
+  console.log("⏲Initializing background jobs...");
   
   // Run once on startup
   expirePastEvents();

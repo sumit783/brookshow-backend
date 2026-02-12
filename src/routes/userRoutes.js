@@ -1,5 +1,5 @@
 import express from "express";
-import { getTopArtists, createReview, getArtistReviews, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, getEventById, buyTicket, verifyTicketPayment, getTicketById, getUserProfile, createArtistBooking, verifyArtistBookingPayment, getArtistPrice, getTicketTypesByEvent, getUserBookings, getUserBookingById } from "../controllers/userController.js";
+import { getTopArtists, createReview, getArtistReviews, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, searchArtists, searchEvents, getSearchFilters, getEventFilters, getEventById, buyTicket, verifyTicketPayment, getTicketById, getUserProfile, createArtistBooking, verifyArtistBookingPayment, getArtistPrice, getTicketTypesByEvent, getUserBookings, getUserBookingById } from "../controllers/userController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import {updateBookingStatus} from "../controllers/bookingController.js";
@@ -8,6 +8,18 @@ const router = express.Router();
 
 // Get top 4 artists (public route, no auth required)
 router.get("/top-artists", checkApiKey, getTopArtists);
+
+// Search artists
+router.get("/search-artist", checkApiKey, searchArtists);
+
+// Search events
+router.get("/search-event", checkApiKey, searchEvents);
+
+// Get search filters (cities and services)
+router.get("/search-filters", checkApiKey, getSearchFilters);
+
+// Get event filters (cities and categories)
+router.get("/search-event-filters", checkApiKey, getEventFilters);
 
 // Get all published events/tickets (public route, no auth required)
 router.get("/events", checkApiKey, getEvents);

@@ -1740,3 +1740,348 @@ export const getArtistReviews = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+export const searchArtists = async (req, res) => {
+  try {
+    const { name, location, talent, startDate, endDate } = req.query;
+
+    let artistQuery = { verificationStatus: "verified" };
+    let userQuery = {};
+
+    // 1. Filter by Name (User Model)
+    if (name) {
+      userQuery.displayName = { $regex: name, $options: "i" };
+      const users = await User.find(userQuery).select("_id");
+      const userIds = users.map((u) => u._id);
+      artistQuery.userId = { $in: userIds };
+    }
+
+    // 2. Filter by Location
+    if (location) {
+      artistQuery.$or = [
+        { "location.city": { $regex: location, $options: "i" } },
+        { "location.state": { $regex: location, $options: "i" } },
+      ];
+    }
+
+    // 3. Filter by Talent/Service
+    if (talent) {
+      // Find artistIds that have a service matching the talent
+      const servicesWithTalent = await Service.find({
+        category: { $regex: talent, $options: "i" },
+      }).select("artistId");
+      const artistIdsFromServices = servicesWithTalent.map((s) => s.artistId);
+
+      // Add to artistQuery (check both Artist.category and Service.category)
+      const existingCategoryQuery = { category: { $regex: talent, $options: "i" } };
+      const serviceIdQuery = { _id: { $in: artistIdsFromServices } };
+
+      if (artistQuery.$or) {
+        // If location filter is already using $or, we need to be careful.
+        // Let's use $and to combine location $or and talent $or if needed.
+        // For simplicity, let's just add the talent conditions to the existing $or or create a new one.
+        artistQuery.$and = artistQuery.$and || [];
+        artistQuery.$and.push({ $or: [existingCategoryQuery, serviceIdQuery] });
+      } else {
+        artistQuery.$or = [existingCategoryQuery, serviceIdQuery];
+      }
+    }
+
+    // 4. Filter by Date Range (Availability)
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        // Find conflicting bookings
+        const conflictingBookings = await Booking.find({
+          status: { $in: ["pending", "confirmed"] },
+          startAt: { $lt: end },
+          endAt: { $gt: start },
+        }).select("artistId");
+
+        // Find conflicting calendar blocks
+        const conflictingBlocks = await CalendarBlock.find({
+          startDate: { $lt: end },
+          endDate: { $gt: start },
+        }).select("artistId");
+
+        const busyArtistIds = [
+          ...conflictingBookings.map((b) => b.artistId),
+          ...conflictingBlocks.map((c) => c.artistId),
+        ];
+
+        if (busyArtistIds.length > 0) {
+          if (artistQuery._id) {
+            artistQuery._id = { $all: [artistQuery._id, { $nin: busyArtistIds }] }; // This doesn't seem right for IDs
+          }
+          // Better way to merge ID exclusions
+          artistQuery._id = artistQuery._id || {};
+          artistQuery._id.$nin = [...(artistQuery._id.$nin || []), ...busyArtistIds];
+        }
+      }
+    }
+
+    // Execute query
+    const artists = await Artist.find(artistQuery).populate("userId", "displayName");
+
+    if (artists.length === 0) {
+      return res.status(200).json({ success: true, artists: [] });
+    }
+
+    // Process each artist to get the required data (Matching getAllArtists format)
+    const allArtists = await Promise.all(
+      artists.map(async (artist) => {
+        const services = await Service.find({ artistId: artist._id });
+        const serviceCategories = services.map((s) => s.category).filter(Boolean);
+        
+        let category = "";
+        let specialties = [];
+        
+        if (serviceCategories.length > 0) {
+          category = serviceCategories[0];
+          specialties = serviceCategories.slice(1);
+        } else if (artist.category && artist.category.length > 0) {
+          category = artist.category[0];
+          specialties = artist.category.slice(1);
+        }
+
+        const prices = services
+          .map((s) => s.price_for_user)
+          .filter((price) => price != null && price > 0);
+        const price = prices.length > 0 ? Math.min(...prices) : 0;
+
+        let rating = 0;
+        const reviews = await Review.find({ artistId: artist._id });
+        if (reviews.length > 0) {
+          const totalRating = reviews.reduce((sum, review) => sum + (review.rating || 0), 0);
+          rating = totalRating / reviews.length;
+        }
+
+        const locationStr = artist.location
+          ? `${artist.location.city || ""}, ${artist.location.state || ""}`.trim().replace(/^,\s*|,\s*$/g, "")
+          : "";
+
+        return {
+          id: artist._id,
+          name: artist.userId?.displayName || "Unknown Artist",
+          category: category || "",
+          rating: Math.round(rating * 10) / 10,
+          location: locationStr || "Location not specified",
+          image: artist.profileImage || "",
+          specialties: specialties.length > 0 ? specialties : [],
+          price: price,
+        };
+      })
+    );
+
+    res.status(200).json({ success: true, artists: allArtists, count: allArtists.length });
+  } catch (error) {
+    console.error("searchArtists error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const searchEvents = async (req, res) => {
+  try {
+    const { q, city, category, startDate, endDate } = req.query;
+
+    let query = { published: true };
+
+    if (q) {
+      query.$or = [
+        { title: { $regex: q, $options: "i" } },
+        { venue: { $regex: q, $options: "i" } },
+      ];
+    }
+
+    if (city) {
+      query.city = { $regex: city, $options: "i" };
+    }
+
+    if (startDate && endDate) {
+      query.startAt = {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
+      };
+    } else if (startDate) {
+      query.startAt = { $gte: new Date(startDate) };
+    } else if (endDate) {
+      query.startAt = { $lte: new Date(endDate) };
+    }
+
+    // Filter by Artist Category (Talent)
+    if (category) {
+      // 1. Find artists matching this category
+      const artists = await Artist.find({
+        category: { $regex: category, $options: "i" },
+      }).select("_id");
+      const artistIds = artists.map((a) => a._id);
+
+      // 2. Find services matching this category
+      const services = await Service.find({
+        category: { $regex: category, $options: "i" },
+      }).select("artistId");
+      const artistIdsFromServices = services.map((s) => s.artistId);
+
+      const allArtistIds = [...new Set([...artistIds, ...artistIdsFromServices])];
+
+      // 3. Find bookings for these artists to get eventIds
+      const bookings = await Booking.find({
+        artistId: { $in: allArtistIds },
+      }).select("eventId");
+      const eventIds = bookings.map((b) => b.eventId).filter(Boolean);
+
+      query._id = { $in: eventIds };
+    }
+
+    const events = await Event.find(query)
+      .populate("plannerProfileId")
+      .sort({ startAt: 1 });
+
+    if (events.length === 0) {
+      return res.status(200).json({ success: true, events: [], count: 0 });
+    }
+
+    // Process each event to format the data (Matching getEvents format)
+    const formattedEvents = await Promise.all(
+      events.map(async (event) => {
+        const eventData = { id: event._id };
+        if (event.title) eventData.title = event.title;
+
+        const bookings = await Booking.find({ eventId: event._id })
+          .populate({
+            path: "artistId",
+            populate: { path: "userId", select: "displayName" },
+          })
+          .limit(3);
+
+        if (bookings.length > 0) {
+          const artistNames = bookings
+            .filter((b) => b.artistId?.userId?.displayName)
+            .map((b) => b.artistId.userId.displayName);
+          if (artistNames.length > 0) eventData.artist = artistNames.join(", ");
+        }
+
+        if (event.startAt) {
+          const eventDate = new Date(event.startAt);
+          eventData.date = eventDate.toLocaleDateString("en-US", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          });
+          eventData.time = eventDate.toLocaleTimeString("en-US", {
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          });
+        }
+
+        if (event.venue) eventData.venue = event.venue;
+        if (event.city || event.state) {
+          const locationParts = [];
+          if (event.city) locationParts.push(event.city);
+          if (event.state) locationParts.push(event.state);
+          eventData.location = locationParts.join(", ");
+        }
+
+        const ticketTypes = await TicketType.find({ eventId: event._id });
+        if (ticketTypes.length > 0) {
+          const prices = ticketTypes.map((t) => t.price).filter((p) => p != null && p > 0);
+          if (prices.length > 0) eventData.price = `${Math.min(...prices)}`;
+
+          const totalSold = ticketTypes.reduce((sum, t) => sum + (t.sold || 0), 0);
+          if (totalSold > 0) {
+            eventData.attendance = totalSold >= 1000 ? `${(totalSold / 1000).toFixed(1)}K+ going` : `${totalSold}+ going`;
+          }
+        }
+
+        const mediaItem = await MediaItem.findOne({
+          ownerType: "event",
+          ownerId: event._id,
+          type: "image",
+        });
+        if (mediaItem?.url) eventData.image = mediaItem.url;
+        if (event.plannerProfileId?.logoUrl) eventData.logo = event.plannerProfileId.logoUrl;
+
+        return eventData;
+      })
+    );
+
+    res.status(200).json({
+      success: true,
+      events: formattedEvents,
+      count: formattedEvents.length,
+    });
+  } catch (error) {
+    console.error("searchEvents error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getSearchFilters = async (req, res) => {
+  try {
+    // 1. Get unique cities from verified artists
+    const cities = await Artist.find({ verificationStatus: "verified" }).distinct("location.city");
+
+    // 2. Get unique categories from Service model
+    const serviceCategories = await Service.distinct("category");
+
+    // 3. Get unique categories from Artist model
+    const artistCategories = await Artist.distinct("category");
+
+    // De-duplicate and clean up categories/services
+    const allServices = [...new Set([...serviceCategories, ...artistCategories])]
+      .filter(Boolean)
+      .sort();
+
+    const allCities = cities.filter(Boolean).sort();
+
+    res.status(200).json({
+      success: true,
+      cities: allCities,
+      services: allServices,
+    });
+  } catch (error) {
+    console.error("getSearchFilters error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getEventFilters = async (req, res) => {
+  try {
+    // 1. Get unique cities from published events
+    const cities = await Event.find({ published: true }).distinct("city");
+
+    // 2. Get categories of artists booked for published events
+    // First, find IDs of published events
+    const publishedEvents = await Event.find({ published: true }).select("_id");
+    const eventIds = publishedEvents.map(e => e._id);
+
+    // Find bookings for these events
+    const bookings = await Booking.find({ eventId: { $in: eventIds } }).select("artistId");
+    const artistIds = bookings.map(b => b.artistId).filter(Boolean);
+
+    // Get categories from these artists
+    const artistCategories = await Artist.find({ _id: { $in: artistIds } }).distinct("category");
+    
+    // Get categories from services of these artists
+    const serviceCategories = await Service.find({ artistId: { $in: artistIds } }).distinct("category");
+
+    // De-duplicate and clean up categories
+    const allCategories = ["other", ...new Set([...artistCategories, ...serviceCategories])]
+      .filter(Boolean)
+      .sort();
+
+    const allCities = cities.filter(Boolean).sort();
+
+    res.status(200).json({
+      success: true,
+      cities: allCities,
+      categories: allCategories,
+    });
+  } catch (error) {
+    console.error("getEventFilters error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

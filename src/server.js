@@ -20,17 +20,17 @@ async function startServer() {
       useUnifiedTopology: true,
     });
 
-    console.log(`✅ MongoDB connected to database: ${DB_NAME}`);
+    console.log(`MongoDB connected to database: ${DB_NAME}`);
 
     await dropLegacyArtistIndexes();
     initCronJobs();
 
     const server = http.createServer(app);
     server.listen(PORT, () => {
-      console.log(`🚀 Server running on port ${PORT}`);
+      console.log(`Server running on port ${PORT}`);
     });
   } catch (err) {
-    console.error("❌ MongoDB connection error:", err.message);
+    console.error("MongoDB connection error:", err.message);
     process.exit(1);
   }
 }
