@@ -1274,7 +1274,7 @@ export const verifyArtistBookingPayment = async (req, res) => {
       startDate: booking.startAt,
       endDate: booking.endAt,
       type: "onlineBooking",
-      title: "Confirmed Booking", // We might want to store eventName in Booking model too if needed
+      title: booking.eventName,
       linkedBookingId: booking._id,
       createdBy: userId,
     });

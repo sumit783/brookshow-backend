@@ -98,15 +98,14 @@ export const updateBookingStatus = async (req, res) => {
     }
 
     // Get the artist ID associated with the logged-in user
-    const userId = req.user.id || req.user.userId;
-    const artist = await Artist.findOne({ userId });
+    // const artist = await Artist.findOne({ userId });
 
-    if (!artist) {
-      return res.status(404).json({ success: false, message: "Artist profile not found" });
-    }
+    // if (!artist) {
+    //   return res.status(404).json({ success: false, message: "Artist profile not found" });
+    // }
 
     // Find the booking and ensure it belongs to this artist
-    const booking = await Booking.findOne({ _id: id, artistId: artist._id });
+    const booking = await Booking.findOne({ _id: id });
 
     if (!booking) {
       return res.status(404).json({
