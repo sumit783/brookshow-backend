@@ -12,6 +12,8 @@ import Service from "../models/Service.js";
 import BankDetail from "../models/BankDetail.js";
 import CalendarBlock from "../models/CalendarBlock.js";
 import mongoose from "mongoose";
+import { createOrder, verifySignature } from "../utils/razorpay.js";
+import Commission from "../models/Commission.js";
 
 export const createPlannerProfile = async (req, res) => {
   try {
@@ -576,19 +578,19 @@ export const requestWithdrawal = async (req, res) => {
 // Create Artist Booking (Planner)
 export const createArtistBooking = async (req, res) => {
   try {
-    const plannerUserId = req.user?.id;
+    const plannerUserId = req.user?.id || req.user?.userId;
     if (!plannerUserId) return res.status(401).json({ success: false, message: "Unauthorized" });
 
     const plannerProfile = await PlannerProfile.findOne({ userId: plannerUserId });
     if (!plannerProfile) return res.status(404).json({ success: false, message: "Planner profile not found" });
 
-    const { artistId, serviceId, eventId, startAt, endAt } = req.body;
+    const { artistId, serviceId, eventId, eventName, startAt, endAt, advanceAmount, paidAmount } = req.body;
 
     // Validate required fields
-    if (!artistId || !serviceId || !startAt || !endAt) {
+    if (!artistId || !serviceId || !startAt || !endAt || !eventName) {
       return res.status(400).json({
         success: false,
-        message: "Artist ID, Service ID, start date, and end date are required"
+        message: "Artist ID, Service ID, event name, start date, and end date are required"
       });
     }
 
@@ -602,12 +604,8 @@ export const createArtistBooking = async (req, res) => {
     }
 
     // Validate dates
-    // Fix URL-encoded dates if coming from query params
-    const fixedStartAt = typeof startAt === 'string' ? startAt.replace(/ /g, '+') : startAt;
-    const fixedEndAt = typeof endAt === 'string' ? endAt.replace(/ /g, '+') : endAt;
-
-    const startDate = new Date(fixedStartAt);
-    const endDate = new Date(fixedEndAt);
+    const startDate = new Date(startAt);
+    const endDate = new Date(endAt);
 
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
       return res.status(400).json({ success: false, message: "Invalid date format" });
@@ -615,10 +613,6 @@ export const createArtistBooking = async (req, res) => {
 
     if (startDate >= endDate) {
       return res.status(400).json({ success: false, message: "End date must be after start date" });
-    }
-
-    if (startDate < new Date()) {
-      return res.status(400).json({ success: false, message: "Start date cannot be in the past" });
     }
 
     // Check if artist exists
@@ -633,116 +627,139 @@ export const createArtistBooking = async (req, res) => {
       return res.status(404).json({ success: false, message: "Service not found for this artist" });
     }
 
-    // Check artist availability for the requested dates
-    const conflictingBooking = await Booking.findOne({
-      artistId: artistId,
-      status: { $in: ["pending", "confirmed"] },
-      $or: [
-        { startAt: { $lte: startDate }, endAt: { $gte: startDate } },
-        { startAt: { $lte: endDate }, endAt: { $gte: endDate } },
-        { startAt: { $gte: startDate }, endAt: { $lte: endDate } }
-      ]
-    });
-
-    if (conflictingBooking) {
-      return res.status(409).json({
-        success: false,
-        message: "Artist is not available for the selected dates",
-        conflictingBooking: {
-          startAt: conflictingBooking.startAt,
-          endAt: conflictingBooking.endAt
-        }
-      });
-    }
-
     // Calculate total price based on service pricing for planners
     const pricePerUnit = service.price_for_planner || 0;
-
-    // Calculate duration based on service unit
     let units = 1;
     const timeDiff = endDate - startDate;
 
     if (service.unit === "hour") {
-      units = Math.ceil(timeDiff / (1000 * 60 * 60)); // Convert to hours
+      units = Math.ceil(timeDiff / (1000 * 60 * 60));
     } else if (service.unit === "day") {
-      units = Math.ceil(timeDiff / (1000 * 60 * 60 * 24)); // Convert to days
+      units = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
     } else if (service.unit === "event") {
-      units = 1; // Flat rate per event
+      units = 1;
     }
 
     const totalPrice = pricePerUnit * units;
+    const finalPaidAmount = paidAmount || advanceAmount || (totalPrice * 0.2); // Default to 20% if not provided
 
-    // Check if planner has sufficient wallet balance
-    // if (plannerProfile.walletBalance < totalPrice) {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: "Insufficient wallet balance",
-    //     required: totalPrice,
-    //     available: plannerProfile.walletBalance
-    //   });
-    // }
-
-    // Create the booking
-    const booking = await Booking.create({
+    // Create the booking with pending status
+    const booking = new Booking({
       clientId: plannerUserId,
       artistId: artistId,
       serviceId: serviceId,
       eventId: eventId || null,
+      eventName: eventName,
       source: "planner",
       startAt: startDate,
       endAt: endDate,
       totalPrice: totalPrice,
-      status: "confirmed", // Auto-confirm since payment is from wallet
-      paymentStatus: "paid" // Mark as paid since we're deducting from wallet
+      advanceAmount: finalPaidAmount,
+      paidAmount: finalPaidAmount,
+      status: "pending",
+      paymentStatus: "unpaid"
     });
 
-    // Deduct from planner wallet
-    plannerProfile.walletBalance -= totalPrice;
-    await plannerProfile.save();
+    // Create Razorpay Order
+    const razorpayOrder = await createOrder(finalPaidAmount, booking._id.toString());
+    
+    // Update booking with Razorpay Order ID
+    booking.razorpayOrderId = razorpayOrder.id;
+    await booking.save();
 
-    // Create wallet transaction for planner
-    await WalletTransaction.create({
-      ownerId: plannerProfile._id,
-      ownerType: "planner",
-      type: "debit",
-      amount: totalPrice,
-      source: "booking",
-      description: `Artist booking - ${service.category}`,
-      status: "completed",
-      relatedId: booking._id
+    return res.status(201).json({ 
+      success: true, 
+      booking,
+      razorpayOrder: {
+        id: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency
+      }
     });
+  } catch (err) {
+    console.error("Planner createArtistBooking error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
 
-    // Add booking to artist's bookings array
-    artist.bookings.push(booking._id);
-    await artist.save();
+// Verify Artist Booking Payment (Planner)
+export const verifyArtistBookingPayment = async (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
-    // Populate booking details for response
-    const populatedBooking = await Booking.findById(booking._id)
-      .populate("artistId", "userId bio category location")
-      .populate("serviceId", "category unit price_for_planner")
-      .populate("eventId", "title startAt endAt");
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ success: false, message: "Missing Razorpay payment details" });
+    }
 
+    const isVerified = verifySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+
+    if (!isVerified) {
+      return res.status(400).json({ success: false, message: "Payment verification failed" });
+    }
+
+    const booking = await Booking.findOne({ razorpayOrderId: razorpay_order_id });
+    if (!booking) {
+      return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+
+    if (booking.paymentStatus === "advance") {
+      return res.status(200).json({ success: true, message: "Payment already verified", booking });
+    }
+
+    // Update booking status
+    booking.status = "confirmed";
+    booking.paymentStatus = "advance";
+    booking.razorpayPaymentId = razorpay_payment_id;
+    booking.razorpaySignature = razorpay_signature;
+    await booking.save();
+
+    const artist = await Artist.findById(booking.artistId);
+    
     // Create a calendar block for the artist booking
     await CalendarBlock.create({
-      artistId: artistId,
-      startDate: startDate,
-      endDate: endDate,
+      artistId: artist._id,
+      startDate: booking.startAt,
+      endDate: booking.endAt,
       type: "onlineBooking",
-      title: populatedBooking?.eventId?.title || `Planner Booking - ${service.category}`,
+      title: booking.eventName,
       linkedBookingId: booking._id,
-      createdBy: plannerUserId,
+      createdBy: booking.clientId,
     });
 
-    return res.status(201).json({
-      success: true,
-      message: "Artist booking created successfully",
-      booking: populatedBooking,
-      remainingBalance: plannerProfile.walletBalance
+    // Handle Commission and Artist Wallet Update
+    const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
+    const commissionPercent = commissionSettings ? commissionSettings.artistBookingCommission : 0;
+    
+    const commissionValue = (booking.totalPrice * commissionPercent) / 100;
+    const artistNetCredit = booking.paidAmount - commissionValue;
+
+    // Update Artist Wallet
+    artist.wallet = artist.wallet || { balance: 0, pendingAmount: 0, transactions: [] };
+    artist.wallet.balance += artistNetCredit;
+    await artist.save();
+
+    // Create Wallet Transaction for Artist
+    await WalletTransaction.create({
+      ownerId: artist._id,
+      ownerType: "artist",
+      type: "credit",
+      amount: artistNetCredit,
+      source: "booking",
+      referenceId: booking._id.toString(),
+      description: `Advance payment for planner booking (Total: ${booking.totalPrice}, Paid: ${booking.paidAmount}, Commission: ${commissionValue})`,
+      status: "completed"
     });
 
+    return res.status(200).json({ 
+      success: true, 
+      message: "Payment verified and booking confirmed",
+      booking,
+      commissionDeducted: commissionValue,
+      artistCredited: artistNetCredit
+    });
   } catch (err) {
-    console.error("Error creating artist booking:", err);
-    return res.status(500).json({ success: false, message: "Failed to create artist booking" });
+    console.error("Planner verifyArtistBookingPayment error:", err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -1153,5 +1170,164 @@ export const getDashboardMetrics = async (req, res) => {
   } catch (error) {
     console.error("Error fetching dashboard metrics:", error);
     res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// Get Artist Price (Planner)
+export const getArtistPrice = async (req, res) => {
+  try {
+    const { artistId } = req.params;
+    const { serviceId, startDate, endDate } = req.query;
+
+    if (!artistId || !serviceId || !startDate || !endDate) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "artistId, serviceId, startDate, and endDate are required" 
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(artistId) || !mongoose.Types.ObjectId.isValid(serviceId)) {
+      return res.status(400).json({ success: false, message: "Invalid artist or service ID format" });
+    }
+
+    const artist = await Artist.findById(artistId);
+    if (!artist) {
+      return res.status(404).json({ success: false, message: "Artist not found" });
+    }
+
+    const service = await Service.findOne({ _id: serviceId, artistId: artistId });
+    if (!service) {
+      return res.status(404).json({ success: false, message: "Service not found for this artist" });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ success: false, message: "Invalid date format" });
+    }
+
+    if (end <= start) {
+      return res.status(400).json({ success: false, message: "endDate must be after startDate" });
+    }
+
+    // Check availability
+    const conflictingBookings = await Booking.find({
+      artistId: artistId,
+      status: { $in: ["pending", "confirmed"] },
+      $or: [
+        { startAt: { $lt: end }, endAt: { $gt: start } }
+      ]
+    });
+
+    const conflictingBlocks = await CalendarBlock.find({
+      artistId: artistId,
+      $or: [
+        { startDate: { $lt: end }, endDate: { $gt: start } }
+      ]
+    });
+
+    const isAvailable = conflictingBookings.length === 0 && conflictingBlocks.length === 0;
+
+    // Use planner-specific pricing
+    const basePrice = service.price_for_planner || 0;
+    if (basePrice <= 0) {
+      return res.status(400).json({ success: false, message: "Planner price is not set for this service" });
+    }
+
+    let price = basePrice;
+    let calculatedAdvance = (service.advance || 0); // Assuming fixed or unit-based advance for now
+    const diffMs = end - start;
+
+    if (service.unit === "hour") {
+      const hours = Math.ceil(diffMs / (1000 * 60 * 60));
+      price = basePrice * hours;
+      calculatedAdvance = (service.advance || 0) * hours;
+    } else if (service.unit === "day") {
+      const days = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      price = basePrice * days;
+      calculatedAdvance = (service.advance || 0) * days;
+    } else if (service.unit === "event") {
+      price = basePrice;
+      calculatedAdvance = service.advance || 0;
+    }
+
+    return res.status(200).json({
+      success: true,
+      available: isAvailable,
+      price: Math.round(price * 100) / 100,
+      unit: service.unit,
+      basePrice: basePrice,
+      advance: Math.round(calculatedAdvance * 100) / 100,
+      duration: {
+        start: start.toISOString(),
+        end: end.toISOString(),
+        milliseconds: diffMs
+      }
+    });
+  } catch (err) {
+    console.error("Planner getArtistPrice error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Get Booked Artists
+export const getBookedArtists = async (req, res) => {
+  try {
+    const plannerUserId = req.user?.id || req.user?.userId;
+    if (!plannerUserId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const bookings = await Booking.find({ clientId: plannerUserId })
+      .select("status paymentStatus totalPrice startAt endAt eventName bookingId createdAt")
+      .populate({
+        path: "artistId",
+        select: "userId category location profileImage",
+        populate: {
+          path: "userId",
+          select: "displayName"
+        }
+      })
+      .populate("serviceId", "category unit")
+      .populate("eventId", "title")
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({ success: true, count: bookings.length, bookings });
+  } catch (err) {
+    console.error("Planner getBookedArtists error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Get Booking Details
+export const getBookingDetails = async (req, res) => {
+  try {
+    const plannerUserId = req.user?.id || req.user?.userId;
+    if (!plannerUserId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid booking ID format" });
+    }
+
+    const booking = await Booking.findOne({ _id: id, clientId: plannerUserId })
+      .populate({
+        path: "artistId",
+        select: "userId bio category location profileImage",
+        populate: {
+          path: "userId",
+          select: "displayName email phone countryCode"
+        }
+      })
+      .populate("serviceId", "category unit price_for_planner")
+      .populate("eventId", "title startAt endAt venue address city state");
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+
+    return res.status(200).json({ success: true, booking });
+  } catch (err) {
+    console.error("Planner getBookingDetails error:", err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };

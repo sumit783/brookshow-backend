@@ -30,11 +30,11 @@ export const expirePastEvents = async () => {
           { isValide: false }
         );
 
-        console.log(`✅ Event "${event.title}" expired. ${result.modifiedCount} tickets invalidated.`);
+        console.log(`Event "${event.title}" expired. ${result.modifiedCount} tickets invalidated.`);
       }
     }
   } catch (error) {
-    console.error("❌ Error in expirePastEvents job:", error.message);
+    console.error("Error in expirePastEvents job:", error.message);
   }
 };
 
@@ -48,5 +48,5 @@ export const initCronJobs = () => {
   expirePastEvents();
 
   // Run every hour (3600000 ms)
-  setInterval(expirePastEvents, 3600000);
+  setInterval(expirePastEvents, 3600);
 };
