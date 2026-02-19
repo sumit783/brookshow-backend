@@ -239,7 +239,7 @@ export const getArtistById = async (req, res) => {
     const yearsSinceCreation = artist.createdAt
       ? Math.floor((new Date() - new Date(artist.createdAt)) / (1000 * 60 * 60 * 24 * 365))
       : 0;
-    const experience = yearsSinceCreation > 0 ? `${yearsSinceCreation}+ Years` : "New Artist";
+    const experience = yearsSinceCreation > 0 ? `${yearsSinceCreation}` : 1;
 
     // Format response
     const artistData = {
