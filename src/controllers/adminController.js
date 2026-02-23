@@ -812,15 +812,38 @@ export const updateWithdrawalStatus = async (req, res) => {
       request.adminNotes = adminNotes;
     }
 
+    // Debit wallet if approved
+    if (status === "processed") {
+      if (request.userType === "planner") {
+        const planner = await PlannerProfile.findOne({ userId: request.userId });
+        if (!planner || planner.walletBalance < request.amount) {
+          return res.status(400).json({ message: "Insufficient balance in planner wallet." });
+        }
+        planner.walletBalance -= request.amount;
+        await planner.save();
+      } else if (request.userType === "artist") {
+        const artist = await Artist.findOne({ userId: request.userId });
+        if (!artist || artist.wallet.balance < request.amount) {
+          return res.status(400).json({ message: "Insufficient balance in artist wallet." });
+        }
+        artist.wallet.balance -= request.amount;
+        await artist.save();
+      }
+    }
+
     await request.save();
 
     // Update Wallet Transaction
     if (request.transactionId) {
       const transactionStatus = status === "processed" ? "completed" : "failed";
-      await WalletTransaction.findByIdAndUpdate(request.transactionId, { status: transactionStatus });
+      await WalletTransaction.findByIdAndUpdate(request.transactionId, { 
+        status: transactionStatus,
+        adminNote: adminNotes || ""
+      });
     }
 
-    // Refund if rejected
+    // No refund needed anymore on rejection because it's not debited upfront.
+    /*
     if (status === "rejected") {
       if (request.userType === "planner") {
         await PlannerProfile.findOneAndUpdate(
@@ -828,13 +851,13 @@ export const updateWithdrawalStatus = async (req, res) => {
           { $inc: { walletBalance: request.amount } }
         );
       } else if (request.userType === "artist") {
-        // Checking Artist model structure from previous views
         await Artist.findOneAndUpdate(
           { userId: request.userId },
           { $inc: { "wallet.balance": request.amount } }
         );
       }
     }
+    */
 
     return res.status(200).json({ message: `Withdrawal request ${status} successfully`, request });
   } catch (e) {

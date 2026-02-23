@@ -77,9 +77,8 @@ export const updatePlannerProfile = async (req, res) => {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
     const updates = {};
-    const { organization, verified } = req.body;
+    const { organization } = req.body;
     if (organization !== undefined) updates.organization = organization;
-    if (verified !== undefined) updates.verified = verified;
     if (req.file) updates.logoUrl = "/uploads/" + req.file.filename;
 
     const profile = await PlannerProfile.findOneAndUpdate({ userId }, updates, { new: true });
@@ -116,7 +115,8 @@ export const getPlannerWallet = async (req, res) => {
       {
         $match: {
           ownerId: plannerProfile._id,
-          ownerType: "planner"
+          ownerType: "planner",
+          status: "completed"
         }
       },
       {
@@ -528,13 +528,25 @@ export const requestWithdrawal = async (req, res) => {
       return res.status(404).json({ success: false, message: "Planner profile not found" });
     }
 
-    if (planner.walletBalance < amount) {
-      return res.status(400).json({ success: false, message: "Insufficient balance" });
+    // Check for pending withdrawals to calculate available balance
+    const pendingWithdrawals = await WithdrawalRequest.find({ 
+      userId, 
+      status: "pending" 
+    });
+    
+    const totalPendingAmount = pendingWithdrawals.reduce((sum, req) => sum + req.amount, 0);
+    const availableBalance = planner.walletBalance - totalPendingAmount;
+
+    if (availableBalance < amount) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Insufficient available balance. Your current balance is ${planner.walletBalance}, but you have ${totalPendingAmount} in pending withdrawals.` 
+      });
     }
 
-    // Deduct balance
-    planner.walletBalance -= amount;
-    await planner.save();
+    // DO NOT Deduct balance here anymore. It will be deducted when admin approves.
+    // planner.walletBalance -= amount;
+    // await planner.save();
 
     // Create Transaction
     const transaction = await WalletTransaction.create({
@@ -564,9 +576,10 @@ export const requestWithdrawal = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "Withdrawal request created successfully",
+      message: "Withdrawal request created successfully. Amount will be debited after admin verification.",
       withdrawalRequest,
-      newBalance: planner.walletBalance
+      balance: planner.walletBalance, // Still shows original balance
+      availableBalance: availableBalance - amount
     });
 
   } catch (err) {

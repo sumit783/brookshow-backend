@@ -10,6 +10,7 @@ const walletTransactionSchema = new mongoose.Schema(
     referenceId: { type: String, default: null },
     description: String,
     status: { type: String, enum: ["pending", "completed", "failed"], default: "pending" },
+    adminNote: { type: String, default: "" },
   },
   { timestamps: true }
 );

@@ -340,7 +340,8 @@ export const getWalletStats = async (req, res) => {
       {
         $match: {
           ownerId: artist._id,
-          ownerType: "artist"
+          ownerType: "artist",
+          status: "completed"
         }
       },
       {
@@ -410,9 +411,20 @@ export const requestWithdrawal = async (req, res) => {
       return res.status(404).json({ success: false, message: "Artist profile not found" });
     }
 
-    // Fix: Access wallet.balance instead of walletBalance
-    if (artist.wallet.balance < amount) {
-      return res.status(400).json({ success: false, message: "Insufficient balance" });
+    // Check for pending withdrawals to calculate available balance
+    const pendingWithdrawals = await WithdrawalRequest.find({ 
+      userId, 
+      status: "pending" 
+    });
+    
+    const totalPendingAmount = pendingWithdrawals.reduce((sum, req) => sum + req.amount, 0);
+    const availableBalance = artist.wallet.balance - totalPendingAmount;
+
+    if (availableBalance < amount) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Insufficient available balance. Your current balance is ${artist.wallet.balance}, but you have ${totalPendingAmount} in pending withdrawals.` 
+      });
     }
 
     // Fetch Bank Details
@@ -423,9 +435,9 @@ export const requestWithdrawal = async (req, res) => {
     // Use primary or first available
     const selectedBankDetail = bankDetailsList[0];
 
-    // Deduct balance
-    artist.wallet.balance -= amount;
-    await artist.save();
+    // DO NOT Deduct balance here anymore. It will be deducted when admin approves.
+    // artist.wallet.balance -= amount;
+    // await artist.save();
 
     // Create Transaction
     const transaction = await WalletTransaction.create({
@@ -455,9 +467,10 @@ export const requestWithdrawal = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "Withdrawal request created successfully",
+      message: "Withdrawal request created successfully. Amount will be debited after admin verification.",
       withdrawalRequest,
-      newBalance: artist.wallet.balance
+      balance: artist.wallet.balance, // Still shows original balance
+      availableBalance: availableBalance - amount
     });
   } catch (err) {
     console.error("requestWithdrawal error:", err);
