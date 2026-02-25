@@ -8,6 +8,7 @@ import Ticket from "../models/Ticket.js";
 import MediaItem from "../models/MediaItem.js";
 import WithdrawalRequest from "../models/WithdrawalRequest.js";
 import User from "../models/User.js";
+import Commission from "../models/Commission.js";
 
 export const getAllArtists = async (req, res) => {
   try {
@@ -347,29 +348,34 @@ export const getDashboardStats = async (req, res) => {
     const monthlyTickets = await Ticket.countDocuments({ createdAt: { $gte: startOfMonth } });
     const totalMonthly = monthlyBookings + monthlyTickets;
 
-    // 4. Revenue
-    // Calculate from Bookings (paid)
+    // 4. Revenue (Calculated from commissionAmount)
+    // From Artist Bookings
     const paidBookings = await Booking.aggregate([
-      { $match: { paymentStatus: "paid" } },
-      { $group: { _id: null, total: { $sum: "$totalPrice" } } }
+      { $match: { paymentStatus: "advance" } }, // In this system, "advance" means verified payment
+      { $group: { _id: null, total: { $sum: "$commissionAmount" } } }
     ]);
     const bookingRevenue = paidBookings[0]?.total || 0;
 
-    // Calculate from Tickets (TicketType sold * price is simpler, but Ticket count * Type Price is more accurate if tracked)
-    // We'll use TicketType sold * price for aggregate revenue as it's faster
-    const ticketRevenueAgg = await TicketType.aggregate([
-      { $group: { _id: null, total: { $sum: { $multiply: ["$sold", "$price"] } } } }
+    // From Tickets
+    const ticketRevenueAgg = await Ticket.aggregate([
+      { $match: { paymentStatus: "paid" } },
+      { $group: { _id: null, total: { $sum: "$commissionAmount" } } }
     ]);
     const ticketRevenue = ticketRevenueAgg[0]?.total || 0;
 
     const totalRevenue = bookingRevenue + ticketRevenue;
 
-    // Pending Revenue (Pending Bookings)
+    // Pending Revenue (Unpaid Bookings - based on commission estimated from total price)
+    // Since commissionAmount is set on payment, we estimate it here based on global commission setting
+    const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
+    const commissionPercent = commissionSettings ? commissionSettings.artistBookingCommission : 0;
+
     const pendingBookings = await Booking.aggregate([
-      { $match: { paymentStatus: "unpaid", status: { $ne: "cancelled" } } }, // Assuming unpaid & not cancelled = pending money
+      { $match: { paymentStatus: "unpaid", status: { $ne: "cancelled" } } },
       { $group: { _id: null, total: { $sum: "$totalPrice" } } }
     ]);
-    const pendingRevenue = pendingBookings[0]?.total || 0;
+    const totalPendingPrice = pendingBookings[0]?.total || 0;
+    const pendingRevenue = (totalPendingPrice * commissionPercent) / 100;
 
     const formatCurrency = (amount) => {
       if (amount >= 10000000) return `₹${(amount / 10000000).toFixed(1)}Cr`;
@@ -402,7 +408,7 @@ export const getDashboardStats = async (req, res) => {
       {
         title: "Revenue",
         value: formatCurrency(totalRevenue),
-        subtitle: `${formatCurrency(pendingRevenue)} pending`,
+        subtitle: `Total Commission Collect`,
         icon: "IndianRupee",
         variant: "success",
       },
@@ -432,8 +438,25 @@ export const getRevenueChartData = async (req, res) => {
       resultMap.set(mName, { month: mName, revenue: 0, bookings: 0, order: i });
     }
 
-    // 1. Aggregate Bookings (Artist Bookings)
+    // 1. Aggregate Bookings (Artist Bookings Commissions)
     const bookingStats = await Booking.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: sixMonthsAgo },
+          paymentStatus: "advance"
+        }
+      },
+      {
+        $group: {
+          _id: { $month: "$createdAt" },
+          totalRevenue: { $sum: "$commissionAmount" },
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // 2. Aggregate Tickets Commissions
+    const ticketStats = await Ticket.aggregate([
       {
         $match: {
           createdAt: { $gte: sixMonthsAgo },
@@ -442,36 +465,9 @@ export const getRevenueChartData = async (req, res) => {
       },
       {
         $group: {
-          _id: { $month: "$createdAt" }, // 1-12
-          totalRevenue: { $sum: "$totalPrice" },
-          count: { $sum: 1 }
-        }
-      }
-    ]);
-
-    // 2. Aggregate Tickets
-    // Note: This relies on Ticket having reference to TicketType and calculating price * persons
-    const ticketStats = await Ticket.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: sixMonthsAgo },
-          isValide: true
-        }
-      },
-      {
-        $lookup: {
-          from: "tickettypes",
-          localField: "ticketTypeId",
-          foreignField: "_id",
-          as: "typeInfo"
-        }
-      },
-      { $unwind: "$typeInfo" },
-      {
-        $group: {
           _id: { $month: "$createdAt" },
-          totalRevenue: { $sum: { $multiply: ["$persons", "$typeInfo.price"] } },
-          count: { $sum: 1 } // Counting ticket orders (not just persons)
+          totalRevenue: { $sum: "$commissionAmount" },
+          count: { $sum: 1 }
         }
       }
     ]);
@@ -515,33 +511,18 @@ export const getBookingStats = async (req, res) => {
       status: { $in: ["confirmed", "completed"] }
     });
 
-    // 3. Total Revenue
-    // Artist Bookings Revenue (Paid)
+    // 3. Total Revenue (Commission based)
+    // Artist Bookings Commission
     const paidArtistBookings = await Booking.aggregate([
-      { $match: { paymentStatus: "paid" } },
-      { $group: { _id: null, total: { $sum: "$totalPrice" } } }
+      { $match: { paymentStatus: "advance" } },
+      { $group: { _id: null, total: { $sum: "$commissionAmount" } } }
     ]);
     const artistRevenue = paidArtistBookings[0]?.total || 0;
 
-    // Ticket Revenue
-    // Need to join with TicketType to get price
+    // Ticket Commission
     const ticketRevenueAgg = await Ticket.aggregate([
-      { $match: { isValide: true } },
-      {
-        $lookup: {
-          from: "tickettypes",
-          localField: "ticketTypeId",
-          foreignField: "_id",
-          as: "typeInfo"
-        }
-      },
-      { $unwind: "$typeInfo" },
-      {
-        $group: {
-          _id: null,
-          total: { $sum: { $multiply: ["$persons", "$typeInfo.price"] } }
-        }
-      }
+      { $match: { paymentStatus: "paid" } },
+      { $group: { _id: null, total: { $sum: "$commissionAmount" } } }
     ]);
     const ticketRevenue = ticketRevenueAgg[0]?.total || 0;
     const totalRevenue = artistRevenue + ticketRevenue;

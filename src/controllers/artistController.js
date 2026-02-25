@@ -8,6 +8,7 @@ import Review from "../models/Review.js";
 import WithdrawalRequest from "../models/WithdrawalRequest.js";
 import WalletTransaction from "../models/WalletTransaction.js";
 import BankDetail from "../models/BankDetail.js";
+import Booking from "../models/Booking.js";
 
 function getBodyField(value) {
   if (typeof value === "string") {
@@ -19,7 +20,17 @@ function getBodyField(value) {
 // Create Artist Profile
 export const createArtistProfile = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "User ID not found in token" });
+    }
+
+    // Check if artist profile already exists
+    const existingArtist = await Artist.findOne({ userId });
+    if (existingArtist) {
+      return res.status(400).json({ success: false, message: "Artist profile already exists for this user" });
+    }
+
     const { bio, city, state, country } = req.body;
     const location = { city, state, country };
     let _category = req.body.category;
@@ -66,6 +77,9 @@ export const createArtistProfile = async (req, res) => {
         }
       }
     }
+
+    // Update user role to artist
+    await User.findByIdAndUpdate(userId, { role: "artist" });
 
     return res.status(201).json({ success: true, message: 'Artist profile created', artist });
   } catch (err) {
@@ -130,13 +144,38 @@ export const updateArtistProfile = async (req, res) => {
 // Get Artist Profile (for current user)
 export const getArtistProfile = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.id || req.user.userId;
+    console.log("getArtistProfile called for userId:", userId);
+    
     const artist = await Artist.findOne({ userId }).lean().populate("userId");
-    if (!artist || !artist.userId) return res.status(404).json({ message: 'Artist profile not found for user' });
+    
+    if (!artist) {
+      console.log("Artist profile NOT FOUND in database for userId:", userId);
+      return res.status(404).json({ message: 'Artist profile not found for user' });
+    }
+    
+    if (!artist.userId) {
+      console.log("Artist found but populated userId is NULL for userId:", userId);
+      return res.status(404).json({ message: 'Artist profile not found for user' });
+    }
+    
+    console.log("Artist profile found successfully for userId:", userId);
     const exclude = (({ eventPricing, bookings, wallet, calendar, ...obj }) => obj);
     const artistData = exclude(artist);
     const media = await MediaItem.find({ ownerType: "artist", ownerId: artist._id });
-    return res.status(200).json({ success: true, ...artistData, media });
+    
+    // Fetch statistical data
+    const completedBookings = await Booking.countDocuments({ artistId: artist._id, status: "completed" });
+    const confirmedBookings = await Booking.countDocuments({ artistId: artist._id, status: "confirmed" });
+    const mediaCount = media.length;
+
+    const stats = {
+      completedBookings,
+      confirmedBookings,
+      mediaCount
+    };
+
+    return res.status(200).json({ success: true, ...artistData, media, stats });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }

@@ -20,7 +20,7 @@ import {
   updateBankDetail,
   deleteBankDetail,
 } from "../controllers/artistController.js";
-import { updateBookingStatus } from "../controllers/bookingController.js";
+import { getArtistBookings, updateBookingStatus } from "../controllers/bookingController.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 
@@ -100,6 +100,9 @@ router.get("/wallet/transactions", checkApiKey, verifyToken, listWalletTransacti
 
 // Withdraw Request
 router.post("/withdraw", checkApiKey, verifyToken, requestWithdrawal);
+
+// Bookings for artist
+router.get("/bookings", checkApiKey, verifyToken, getArtistBookings);
 
 // Booking Status Update
 router.patch("/bookings/:id/status", checkApiKey, verifyToken, updateBookingStatus);

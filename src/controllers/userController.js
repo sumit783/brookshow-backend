@@ -1151,7 +1151,17 @@ export const verifyTicketPayment = async (req, res) => {
 
     // Update planner's wallet balance
     const totalPrice = ticketType.price * ticket.persons;
-    plannerProfile.walletBalance += totalPrice;
+    
+    // 💰 Handle Ticket Commission calculation from global settings
+    const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
+    const ticketCommissionPercent = commissionSettings ? commissionSettings.ticketSellCommission : 0;
+    const ticketCommissionAmount = (totalPrice * ticketCommissionPercent) / 100;
+    const plannerNetCredit = totalPrice - ticketCommissionAmount;
+
+    ticket.commissionAmount = ticketCommissionAmount;
+    await ticket.save();
+
+    plannerProfile.walletBalance += plannerNetCredit;
     await plannerProfile.save();
 
     // Create wallet transaction record
@@ -1159,10 +1169,10 @@ export const verifyTicketPayment = async (req, res) => {
       ownerId: plannerProfile._id,
       ownerType: "planner",
       type: "credit",
-      amount: totalPrice,
+      amount: plannerNetCredit,
       source: "booking",
       referenceId: ticket._id.toString(),
-      description: `Ticket sale for ${event.title} (${ticket.persons} qty)`,
+      description: `Ticket sale for ${event.title} (${ticket.persons} qty, Total: ${totalPrice}, Commission: ${ticketCommissionAmount})`,
       status: "completed"
     });
 
@@ -1263,6 +1273,13 @@ export const verifyArtistBookingPayment = async (req, res) => {
     booking.paymentStatus = "advance";
     booking.razorpayPaymentId = razorpay_payment_id;
     booking.razorpaySignature = razorpay_signature;
+    
+    // 💰 Handle Commission calculation early to save it in booking
+    const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
+    const commissionPercent = commissionSettings ? commissionSettings.artistBookingCommission : 0;
+    const commissionValue = (booking.totalPrice * commissionPercent) / 100;
+
+    booking.commissionAmount = commissionValue;
     await booking.save();
 
     const artist = await Artist.findById(booking.artistId);
@@ -1279,14 +1296,7 @@ export const verifyArtistBookingPayment = async (req, res) => {
       createdBy: userId,
     });
 
-    // 💰 Handle Commission and Artist Wallet Update
-    const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
-    const commissionPercent = commissionSettings ? commissionSettings.artistBookingCommission : 0;
-    
-    // Calculate commission on TOTAL PRICE
-    const commissionValue = (booking.totalPrice * commissionPercent) / 100;
-    
-    // Deduct commission from PAID AMOUNT (advance) to get net artist credit
+    // Use the already calculated commissionValue
     const artistNetCredit = booking.paidAmount - commissionValue;
 
     // Update Artist Wallet

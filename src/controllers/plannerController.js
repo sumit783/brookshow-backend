@@ -724,6 +724,13 @@ export const verifyArtistBookingPayment = async (req, res) => {
     booking.paymentStatus = "advance";
     booking.razorpayPaymentId = razorpay_payment_id;
     booking.razorpaySignature = razorpay_signature;
+
+    // Handle Commission and Artist Wallet Update
+    const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
+    const commissionPercent = commissionSettings ? commissionSettings.artistBookingCommission : 0;
+    const commissionValue = (booking.totalPrice * commissionPercent) / 100;
+
+    booking.commissionAmount = commissionValue;
     await booking.save();
 
     const artist = await Artist.findById(booking.artistId);
@@ -739,11 +746,6 @@ export const verifyArtistBookingPayment = async (req, res) => {
       createdBy: booking.clientId,
     });
 
-    // Handle Commission and Artist Wallet Update
-    const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
-    const commissionPercent = commissionSettings ? commissionSettings.artistBookingCommission : 0;
-    
-    const commissionValue = (booking.totalPrice * commissionPercent) / 100;
     const artistNetCredit = booking.paidAmount - commissionValue;
 
     // Update Artist Wallet

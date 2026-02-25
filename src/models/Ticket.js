@@ -18,7 +18,8 @@ const ticketSchema = new mongoose.Schema(
     razorpayOrderId: { type: String },
     razorpayPaymentId: { type: String },
     razorpaySignature: { type: String },
-    paymentStatus: { type: String, enum: ["unpaid", "paid"], default: "unpaid" }
+    paymentStatus: { type: String, enum: ["unpaid", "paid"], default: "unpaid" },
+    commissionAmount: { type: Number, default: 0 }
   },
   { timestamps: true }
 );
