@@ -12,13 +12,14 @@ const transporter = nodemailer.createTransport({
     },
   });
 
-export const sendEmail = async (to, subject, html) => {
+export const sendEmail = async (to, subject, html, attachments = []) => {
   try {
     const info = await transporter.sendMail({
       from: `"BrookShow" <${process.env.SMTP_EMAIL}>`,
       to,
       subject,
       html,
+      attachments,
     });
     console.log("✅ Email sent:", info.messageId);
     return true;

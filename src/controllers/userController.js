@@ -14,6 +14,9 @@ import QRCode from "qrcode";
 import CalendarBlock from "../models/CalendarBlock.js";
 import Commission from "../models/Commission.js";
 import { createOrder, verifySignature } from "../utils/razorpay.js";
+import { sendEmail } from "../utils/sendEmail.js";
+import { getTicketConfirmationTemplate } from "../utils/emailTemplates.js";
+import { ENV } from "../config/env.js";
 
 export const getTopArtists = async (req, res) => {
   try {
@@ -1058,7 +1061,7 @@ export const buyTicket = async (req, res) => {
       buyerPhone,
       persons: quantity,
       scannedPersons: 0,
-      isValide: true,
+      isValide: false,
       issuedAt: new Date()
     });
 
@@ -1134,16 +1137,28 @@ export const verifyTicketPayment = async (req, res) => {
       return res.status(200).json({ success: true, message: "Payment already verified", ticket });
     }
 
+    const ticketType = await TicketType.findById(ticket.ticketTypeId);
+    const event = await Event.findById(ticket.eventId);
+    const plannerProfile = await PlannerProfile.findById(event.plannerProfileId);
+
+    if (!ticketType || !event || !plannerProfile) {
+      return res.status(404).json({ success: false, message: "Associated ticket data not found" });
+    }
+
+    // Verify availability one last time before finalizing
+    if (ticketType.sold + ticket.persons > ticketType.quantity) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Oversell detected. Tickets are no longer available in this quantity." 
+      });
+    }
+
     // Update ticket status
     ticket.paymentStatus = "paid";
     ticket.isValide = true;
     ticket.razorpayPaymentId = razorpay_payment_id;
     ticket.razorpaySignature = razorpay_signature;
     await ticket.save();
-
-    const ticketType = await TicketType.findById(ticket.ticketTypeId);
-    const event = await Event.findById(ticket.eventId);
-    const plannerProfile = await PlannerProfile.findById(event.plannerProfileId);
 
     // Update ticket type sold count
     ticketType.sold += ticket.persons;
@@ -1175,6 +1190,58 @@ export const verifyTicketPayment = async (req, res) => {
       description: `Ticket sale for ${event.title} (${ticket.persons} qty, Total: ${totalPrice}, Commission: ${ticketCommissionAmount})`,
       status: "completed"
     });
+
+    // Send confirmation email
+    try {
+      const user = await User.findById(ticket.userId);
+      if (user && user.email) {
+        const eventDate = new Date(event.startAt).toLocaleDateString("en-US", { 
+          year: 'numeric', month: 'long', day: 'numeric' 
+        });
+        const eventTime = new Date(event.startAt).toLocaleTimeString("en-US", { 
+          hour: 'numeric', minute: '2-digit', hour12: true 
+        });
+
+        let emailQrDataUrl = ticket.qrDataUrl;
+        let attachments = [];
+
+        // If qrDataUrl is a base64 data url, send it as an attachment for better email client compatibility
+        if (ticket.qrDataUrl && ticket.qrDataUrl.startsWith('data:image/')) {
+          const base64Data = ticket.qrDataUrl.split(',')[1];
+          const contentType = ticket.qrDataUrl.split(';')[0].split(':')[1];
+          
+          emailQrDataUrl = 'cid:ticket_qr_code';
+          attachments = [{
+            filename: 'ticket_qr.png',
+            content: base64Data,
+            encoding: 'base64',
+            cid: 'ticket_qr_code'
+          }];
+        }
+
+        const emailHtml = getTicketConfirmationTemplate({
+          buyerName: ticket.buyerName,
+          eventName: event.title,
+          eventDate,
+          eventTime,
+          venue: event.venue,
+          ticketType: ticketType.title,
+          quantity: ticket.persons,
+          totalPrice,
+          qrDataUrl: emailQrDataUrl,
+          ticketId: ticket._id.toString()
+        });
+
+        if (ENV.NODE_ENV === "production") {
+          await sendEmail(user.email, `Booking Confirmed: ${event.title}`, emailHtml, attachments);
+        } else {
+          console.log("Skipping email sending in non-production environment:", user.email);
+        }
+      }
+    } catch (emailError) {
+      console.error("Failed to send booking confirmation email:", emailError);
+      // Don't fail the request if email fails
+    }
 
     return res.status(200).json({ 
       success: true, 

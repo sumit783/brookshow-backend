@@ -13,11 +13,10 @@ export const expirePastEvents = async () => {
     // 1. Find and update events
     const expiredEvents = await Event.find({
       endAt: { $lt: now },
-      published: true,
     });
 
     if (expiredEvents.length > 0) {
-      console.log(`🕒 Found ${expiredEvents.length} expired events. Expiring now...`);
+      console.log(`Found ${expiredEvents.length} expired events. Expiring now...`);
 
       for (const event of expiredEvents) {
         // Unpublish the event
@@ -48,5 +47,5 @@ export const initCronJobs = () => {
   expirePastEvents();
 
   // Run every hour (3600000 ms)
-  setInterval(expirePastEvents, 3600);
+  setInterval(expirePastEvents, 3600000);
 };
