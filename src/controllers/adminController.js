@@ -666,7 +666,7 @@ export const verifyArtist = async (req, res) => {
     const { id } = req.params;
     const artist = await Artist.findByIdAndUpdate(
       id,
-      { isVerified: true, verificationStatus: "verified" },
+      { isVerified: true, verificationStatus: "verified",verificationNote:"" },
       { new: true }
     );
     if (!artist) return res.status(404).json({ message: "Artist not found" });
