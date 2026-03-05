@@ -166,191 +166,8 @@ export const listPlannerTransactions = async (req, res) => {
   }
 };
 
-export const createEmployee = async (req, res) => {
-  try {
-    const plannerUserId = req.user?.id;
-    if (!plannerUserId) return res.status(401).json({ message: "Unauthorized" });
-
-    const plannerProfile = await PlannerProfile.findOne({ userId: plannerUserId }).select("_id");
-    if (!plannerProfile) return res.status(404).json({ message: "Planner profile not found" });
-
-    const { displayName, email, phone, countryCode, isActive } = req.body;
-    if (!displayName || !email || !phone || !isActive) {
-      return res.status(400).json({ success: false, message: "Display name, email, phone, and isActive are required" });
-    }
-    // Check if user already exists (by email or phone)
-    let userToLink;
-    const existingUser = await User.findOne({ $or: [{ email: email }, { phone: phone }] });
-    if (existingUser) {
-      existingUser.role = "employee";
-      existingUser.isActive = isActive;
-      await existingUser.save();
-      userToLink = existingUser;
-    } else {
-      const newUser = await User.create({
-        displayName,
-        email,
-        phone,
-        countryCode: countryCode || "+91",
-        role: "employee",
-        isPhoneVerified: true,
-        isEmailVerified: true,
-        isAdminVerified: true,
-        isActive: isActive || true, // Default active
-      });
-      userToLink = newUser;
-    }
-
-    // Link the user as an employee to the planner profile
-    const plannerEmployee = await PlannerEmployee.create({
-      plannerProfileId: plannerProfile._id,
-      name: displayName,
-      email,
-      phone,
-      employeeId: userToLink._id,
-    });
-
-    return res.status(201).json({ success: true, message: "Employee created successfully", employee: userToLink._id, plannerEmployee });
-  } catch (err) {
-    console.error("Error creating employee:", err);
-    return res.status(500).json({ success: false, message: "Failed to create employee" });
-  }
-};
-
-export const listEmployees = async (req, res) => {
-  try {
-    const plannerUserId = req.user?.id;
-    if (!plannerUserId) return res.status(401).json({ message: "Unauthorized" });
-    console.log("planner user id", plannerUserId)
-    const plannerProfile = await PlannerProfile.findOne({ userId: plannerUserId }).select("_id");
-    if (!plannerProfile) return res.status(404).json({ message: "Planner profile not found" });
-    console.log("planner profile", plannerProfile)
-    const employees = await PlannerEmployee.find({ plannerProfileId: plannerProfile._id })
-    console.log("employees", employees)
-    return res.status(200).json({ success: true, employees });
-  } catch (err) {
-    console.error("Error listing employees:", err);
-    return res.status(500).json({ success: false, message: "Failed to list employees" });
-  }
-};
-
-export const getEmployeeById = async (req, res) => {
-  try {
-    const plannerUserId = req.user?.id;
-    if (!plannerUserId) return res.status(401).json({ message: "Unauthorized" });
-
-    const plannerProfile = await PlannerProfile.findOne({ userId: plannerUserId }).select("_id");
-    if (!plannerProfile) return res.status(404).json({ message: "Planner profile not found" });
-
-    const { id } = req.params; // This `id` is the PlannerEmployee._id
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: "Invalid employee ID format" });
-    }
-
-    const plannerEmployee = await PlannerEmployee.findOne({ _id: id, plannerProfileId: plannerProfile._id })
-      .populate("employeeId", "displayName email phone countryCode isActive")
-      .lean();
-
-    if (!plannerEmployee) {
-      return res.status(404).json({ message: "Employee not found for this planner" });
-    }
-
-    const employeeData = {
-      id: plannerEmployee.employeeId._id,
-      displayName: plannerEmployee.employeeId.displayName,
-      email: plannerEmployee.employeeId.email,
-      phone: plannerEmployee.employeeId.phone,
-      countryCode: plannerEmployee.employeeId.countryCode,
-      isActive: plannerEmployee.employeeId.isActive,
-      plannerEmployeeId: plannerEmployee._id,
-    };
-
-    return res.status(200).json({ success: true, employee: employeeData });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-export const updateEmployee = async (req, res) => {
-  try {
-    const plannerUserId = req.user?.id;
-    if (!plannerUserId) return res.status(401).json({ message: "Unauthorized" });
-
-    const plannerProfile = await PlannerProfile.findOne({ userId: plannerUserId }).select("_id");
-    if (!plannerProfile) return res.status(404).json({ message: "Planner profile not found" });
-
-    const { id } = req.params; // This `id` is the PlannerEmployee._id
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: "Invalid employee ID format" });
-    }
-
-    const { displayName, email, phone, countryCode, isActive } = req.body;
-    const updates = {};
-
-    // Find the PlannerEmployee entry
-    const plannerEmployee = await PlannerEmployee.findOne({ _id: id, plannerProfileId: plannerProfile._id });
-    if (!plannerEmployee) {
-      return res.status(404).json({ message: "Employee not found for this planner" });
-    }
-
-    // Prepare updates for the User model
-    const userUpdates = {};
-    if (displayName !== undefined) userUpdates.displayName = displayName;
-    if (email !== undefined) userUpdates.email = email;
-    if (phone !== undefined) userUpdates.phone = phone;
-    if (countryCode !== undefined) userUpdates.countryCode = countryCode;
-    if (isActive !== undefined) userUpdates.isActive = isActive;
-
-    // Apply updates to the User document
-    const updatedUser = await User.findByIdAndUpdate(plannerEmployee.employeeId._id, userUpdates, { new: true }).lean();
-
-    if (!updatedUser) {
-      return res.status(404).json({ message: "User associated with employee not found" });
-    }
-
-    // No direct updates to PlannerEmployee model in this scenario, but could be extended
-
-    return res.status(200).json({ message: "Employee updated successfully", employee: updatedUser });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-export const deleteEmployee = async (req, res) => {
-  try {
-    const plannerUserId = req.user?.id;
-    if (!plannerUserId) return res.status(401).json({ message: "Unauthorized" });
-
-    const plannerProfile = await PlannerProfile.findOne({ userId: plannerUserId }).select("_id");
-    if (!plannerProfile) return res.status(404).json({ message: "Planner profile not found" });
-
-    const { id } = req.params; // This `id` is the PlannerEmployee._id
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: "Invalid employee ID format" });
-    }
-
-    // Find and delete the PlannerEmployee entry
-    const plannerEmployee = await PlannerEmployee.findOne({ _id: id, plannerProfileId: plannerProfile._id });
-    plannerEmployee.isActive = false;
-    await plannerEmployee.save();
-    if (!plannerEmployee) {
-      return res.status(404).json({ message: "Employee not found for this planner" });
-    }
-
-    // Also delete the associated User document
-    // await User.findByIdAndDelete(plannerEmployee.employeeId);
-
-    return res.status(204).send();
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-};
-
 // Helper to get planner ID for a user (either direct planner or employee)
-const getPlannerIdForUser = async (userId) => {
+export const getPlannerIdForUser = async (userId) => {
   // Check if user is a planner
   const plannerProfile = await PlannerProfile.findOne({ userId }).select("_id");
   if (plannerProfile) return plannerProfile._id;
@@ -529,18 +346,18 @@ export const requestWithdrawal = async (req, res) => {
     }
 
     // Check for pending withdrawals to calculate available balance
-    const pendingWithdrawals = await WithdrawalRequest.find({ 
-      userId, 
-      status: "pending" 
+    const pendingWithdrawals = await WithdrawalRequest.find({
+      userId,
+      status: "pending"
     });
-    
+
     const totalPendingAmount = pendingWithdrawals.reduce((sum, req) => sum + req.amount, 0);
     const availableBalance = planner.walletBalance - totalPendingAmount;
 
     if (availableBalance < amount) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Insufficient available balance. Your current balance is ${planner.walletBalance}, but you have ${totalPendingAmount} in pending withdrawals.` 
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient available balance. Your current balance is ${planner.walletBalance}, but you have ${totalPendingAmount} in pending withdrawals.`
       });
     }
 
@@ -675,13 +492,13 @@ export const createArtistBooking = async (req, res) => {
 
     // Create Razorpay Order
     const razorpayOrder = await createOrder(finalPaidAmount, booking._id.toString());
-    
+
     // Update booking with Razorpay Order ID
     booking.razorpayOrderId = razorpayOrder.id;
     await booking.save();
 
-    return res.status(201).json({ 
-      success: true, 
+    return res.status(201).json({
+      success: true,
       booking,
       razorpayOrder: {
         id: razorpayOrder.id,
@@ -734,7 +551,7 @@ export const verifyArtistBookingPayment = async (req, res) => {
     await booking.save();
 
     const artist = await Artist.findById(booking.artistId);
-    
+
     // Create a calendar block for the artist booking
     await CalendarBlock.create({
       artistId: artist._id,
@@ -765,8 +582,8 @@ export const verifyArtistBookingPayment = async (req, res) => {
       status: "completed"
     });
 
-    return res.status(200).json({ 
-      success: true, 
+    return res.status(200).json({
+      success: true,
       message: "Payment verified and booking confirmed",
       booking,
       commissionDeducted: commissionValue,
@@ -977,7 +794,7 @@ export const getDashboardRevenue = async (req, res) => {
     ]);
 
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    
+
     // Initialize last 7 months with 0
     const formattedData = [];
     for (let i = 6; i >= 0; i--) {
@@ -985,9 +802,9 @@ export const getDashboardRevenue = async (req, res) => {
       d.setMonth(d.getMonth() - i);
       const monthIndex = d.getMonth();
       const year = d.getFullYear();
-      
+
       const match = revenueData.find(item => item._id.month === (monthIndex + 1) && item._id.year === year);
-      
+
       formattedData.push({
         name: months[monthIndex],
         revenue: match ? match.revenue : 0,
@@ -1059,7 +876,7 @@ export const getDashboardRecentEvents = async (req, res) => {
       const ticketTypes = await TicketType.find({ eventId: event._id });
       const totalSold = ticketTypes.reduce((sum, t) => sum + (t.sold || 0), 0);
       const totalQty = ticketTypes.reduce((sum, t) => sum + (t.quantity || 0), 0) || 1; // Avoid division by zero
-      
+
       let status = "Upcoming";
       const now = new Date();
       if (event.endAt < now) {
@@ -1147,37 +964,37 @@ export const getDashboardMetrics = async (req, res) => {
 
     // Format for Frontend
     const metrics = [
-      { 
-        label: 'Total Revenue', 
-        value: `₹${totalRevenue.toLocaleString('en-IN')}`, 
+      {
+        label: 'Total Revenue',
+        value: `₹${totalRevenue.toLocaleString('en-IN')}`,
         change: '', // Can be calculated by comparing last month if needed
-        icon: 'DollarSign', 
-        color: 'text-emerald-500', 
-        bg: 'bg-emerald-500/10' 
+        icon: 'DollarSign',
+        color: 'text-emerald-500',
+        bg: 'bg-emerald-500/10'
       },
-      { 
-        label: 'Tickets Sold', 
-        value: totalTicketsSold.toLocaleString('en-IN'), 
-        change: '', 
-        icon: 'Ticket', 
-        color: 'text-violet-500', 
-        bg: 'bg-violet-500/10' 
+      {
+        label: 'Tickets Sold',
+        value: totalTicketsSold.toLocaleString('en-IN'),
+        change: '',
+        icon: 'Ticket',
+        color: 'text-violet-500',
+        bg: 'bg-violet-500/10'
       },
-      { 
-        label: 'Active Events', 
-        value: activeEventsCount.toString(), 
-        change: '', 
-        icon: 'Calendar', 
-        color: 'text-blue-500', 
-        bg: 'bg-blue-500/10' 
+      {
+        label: 'Active Events',
+        value: activeEventsCount.toString(),
+        change: '',
+        icon: 'Calendar',
+        color: 'text-blue-500',
+        bg: 'bg-blue-500/10'
       },
-      { 
-        label: 'Entry Rate', 
-        value: `${entryRate.toFixed(1)}%`, 
-        change: '', 
-        icon: 'Zap', 
-        color: 'text-amber-500', 
-        bg: 'bg-amber-500/10' 
+      {
+        label: 'Entry Rate',
+        value: `${entryRate.toFixed(1)}%`,
+        change: '',
+        icon: 'Zap',
+        color: 'text-amber-500',
+        bg: 'bg-amber-500/10'
       },
     ];
 
@@ -1195,9 +1012,9 @@ export const getArtistPrice = async (req, res) => {
     const { serviceId, startDate, endDate } = req.query;
 
     if (!artistId || !serviceId || !startDate || !endDate) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "artistId, serviceId, startDate, and endDate are required" 
+      return res.status(400).json({
+        success: false,
+        message: "artistId, serviceId, startDate, and endDate are required"
       });
     }
 

@@ -8,9 +8,10 @@ import { verifyToken } from "../middlewares/authMiddleware.js";
 import { createEvent, listEvents, getEventById, updateEvent, deleteEvent, getEventAndId } from "../controllers/eventController.js";
 import { createTicketType, listTicketTypes, getTicketTypeById, updateTicketType, deleteTicketType } from "../controllers/ticketController.js";
 import { listAllArtists, getArtistDetailsById } from "../controllers/artistController.js";
-import { checkArtistAvailability,getArtistServices,getSimilarArtists } from "../controllers/userController.js";
-import {updateBookingStatus} from "../controllers/bookingController.js"
-import { createEmployee, listEmployees, getEmployeeById, updateEmployee, deleteEmployee, verifyTicket, getTicketDataById } from "../controllers/plannerController.js";
+import { checkArtistAvailability, getArtistServices, getSimilarArtists } from "../controllers/userController.js";
+import { updateBookingStatus } from "../controllers/bookingController.js"
+import { createEmployee, listEmployees, getEmployeeById, updateEmployee, deleteEmployee } from "../controllers/employeeController.js";
+import { verifyTicket, getTicketDataById } from "../controllers/plannerController.js";
 import { addBankDetail, getBankDetails, updateBankDetail, deleteBankDetail } from "../controllers/bankDetailController.js";
 
 
@@ -57,7 +58,7 @@ router.delete("/events/:id", checkApiKey, verifyToken, deleteEvent);
 // Artist Routes for planners
 router.get("/artists", checkApiKey, verifyToken, listAllArtists);
 router.get("/artists/check-availability", checkApiKey, verifyToken, checkArtistAvailability);
-router.get("/artist/:artistId/price",checkApiKey,verifyToken,getArtistPrice);
+router.get("/artist/:artistId/price", checkApiKey, verifyToken, getArtistPrice);
 router.get("/artists/:id", checkApiKey, verifyToken, getArtistDetailsById);
 
 router.get("/artists/:id/similar", checkApiKey, verifyToken, getSimilarArtists);
@@ -93,7 +94,7 @@ router.post("/bookings/artist", checkApiKey, verifyToken, createArtistBooking);
 router.post("/bookings/artist/verify", checkApiKey, verifyToken, verifyArtistBookingPayment);
 router.get("/bookings/artists", checkApiKey, verifyToken, getBookedArtists);
 router.get("/bookings/:id", checkApiKey, verifyToken, getBookingDetails);
-router.patch("/bookings/:id/cancel", checkApiKey, verifyToken,updateBookingStatus);
+router.patch("/bookings/:id/cancel", checkApiKey, verifyToken, updateBookingStatus);
 
 // Check Artist Availability with Pricing
 router.get("/artist/:artistId/services", checkApiKey, verifyToken, getArtistServices);
