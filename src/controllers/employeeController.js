@@ -16,27 +16,25 @@ export const createEmployee = async (req, res) => {
             return res.status(400).json({ success: false, message: "Display name, email, phone, and isActive are required" });
         }
         // Check if user already exists (by email or phone)
-        let userToLink;
         const existingUser = await User.findOne({ $or: [{ email: email }, { phone: phone }] });
         if (existingUser) {
-            existingUser.role = "employee";
-            existingUser.isActive = isActive;
-            await existingUser.save();
-            userToLink = existingUser;
-        } else {
-            const newUser = await User.create({
-                displayName,
-                email,
-                phone,
-                countryCode: countryCode || "+91",
-                role: "employee",
-                isPhoneVerified: true,
-                isEmailVerified: true,
-                isAdminVerified: true,
-                isActive: isActive !== undefined ? isActive : true, // Default active
-            });
-            userToLink = newUser;
+            const roleMsg = existingUser.role === "employee"
+                ? "This user is already registered as an employee."
+                : `Email or phone already in use by a user with role: ${existingUser.role}`;
+            return res.status(400).json({ success: false, message: roleMsg });
         }
+
+        const userToLink = await User.create({
+            displayName,
+            email,
+            phone,
+            countryCode: countryCode || "+91",
+            role: "employee",
+            isPhoneVerified: true,
+            isEmailVerified: true,
+            isAdminVerified: true,
+            isActive: isActive !== undefined ? isActive : true, // Default active
+        });
 
         // Link the user as an employee to the planner profile
         const plannerEmployee = await PlannerEmployee.create({
@@ -130,6 +128,28 @@ export const updateEmployee = async (req, res) => {
             return res.status(404).json({ message: "Employee not found for this planner" });
         }
 
+        const userId = plannerEmployee.employeeId;
+
+        // Check uniqueness if email or phone is being updated
+        if (email || phone) {
+            const query = {
+                _id: { $ne: userId },
+                $or: []
+            };
+            if (email) query.$or.push({ email });
+            if (phone) query.$or.push({ phone });
+
+            if (query.$or.length > 0) {
+                const conflictUser = await User.findOne(query);
+                if (conflictUser) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Email or phone already in use by another user with role: ${conflictUser.role}`
+                    });
+                }
+            }
+        }
+
         // Prepare updates for the User model
         const userUpdates = {};
         if (displayName !== undefined) userUpdates.displayName = displayName;
@@ -138,12 +158,21 @@ export const updateEmployee = async (req, res) => {
         if (countryCode !== undefined) userUpdates.countryCode = countryCode;
         if (isActive !== undefined) userUpdates.isActive = isActive;
 
+        // Prepare updates for PlannerEmployee model
+        if (displayName !== undefined) plannerEmployee.name = displayName;
+        if (email !== undefined) plannerEmployee.email = email;
+        if (phone !== undefined) plannerEmployee.phone = phone;
+        if (isActive !== undefined) plannerEmployee.isActive = isActive;
+
         // Apply updates to the User document
-        const updatedUser = await User.findByIdAndUpdate(plannerEmployee.employeeId._id, userUpdates, { new: true }).lean();
+        const updatedUser = await User.findByIdAndUpdate(userId, userUpdates, { new: true }).lean();
 
         if (!updatedUser) {
             return res.status(404).json({ message: "User associated with employee not found" });
         }
+
+        // Save PlannerEmployee updates
+        await plannerEmployee.save();
 
         return res.status(200).json({ message: "Employee updated successfully", employee: updatedUser });
     } catch (err) {
