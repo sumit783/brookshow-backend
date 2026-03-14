@@ -764,30 +764,51 @@ export const getDashboardRevenue = async (req, res) => {
     const userId = req.user?.id || req.user?.userId;
     if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
 
-    // Calculate revenue from completed credit transactions in the last 7 months
+    const plannerProfile = await PlannerProfile.findOne({ userId });
+    if (!plannerProfile) return res.status(404).json({ success: false, message: "Planner profile not found" });
+
+    const events = await Event.find({ plannerProfileId: plannerProfile._id });
+    const eventIds = events.map(e => e._id);
+
+    // Calculate revenue from completed ticket sales in the last 7 months
     const sevenMonthsAgo = new Date();
     sevenMonthsAgo.setMonth(sevenMonthsAgo.getMonth() - 6);
     sevenMonthsAgo.setDate(1);
     sevenMonthsAgo.setHours(0, 0, 0, 0);
 
-    const revenueData = await WalletTransaction.aggregate([
+    const revenueData = await Ticket.aggregate([
       {
         $match: {
-          ownerId: new mongoose.Types.ObjectId(userId),
-          ownerType: "planner",
-          type: "credit",
-          status: "completed",
+          eventId: { $in: eventIds },
+          paymentStatus: "paid",
           createdAt: { $gte: sevenMonthsAgo }
         }
       },
+      {
+        $lookup: {
+          from: "tickettypes",
+          localField: "ticketTypeId",
+          foreignField: "_id",
+          as: "ticketType"
+        }
+      },
+      { $unwind: "$ticketType" },
       {
         $group: {
           _id: {
             month: { $month: "$createdAt" },
             year: { $year: "$createdAt" }
           },
-          revenue: { $sum: "$amount" },
+          totalGross: { $sum: { $multiply: ["$persons", "$ticketType.price"] } },
+          totalCommission: { $sum: "$commissionAmount" },
           bookings: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          revenue: { $subtract: ["$totalGross", "$totalCommission"] },
+          bookings: 1
         }
       },
       { $sort: { "_id.year": 1, "_id.month": 1 } }
@@ -917,29 +938,41 @@ export const getDashboardMetrics = async (req, res) => {
 
     const now = new Date();
 
-    // 1. Total Revenue
-    const revenueResult = await WalletTransaction.aggregate([
-      {
-        $match: {
-          ownerId: new mongoose.Types.ObjectId(userId),
-          ownerType: "planner",
-          type: "credit",
-          status: "completed"
-        }
-      },
-      { $group: { _id: null, total: { $sum: "$amount" } } }
-    ]);
-    const totalRevenue = revenueResult[0]?.total || 0;
-
-    // 2. Tickets Sold & Entry Rate Data
     const events = await Event.find({ plannerProfileId: plannerProfile._id });
     const eventIds = events.map(e => e._id);
 
+    // 1. Total Revenue (Remaining amount after removing commission from tickets sold)
+    const ticketRevenueResult = await Ticket.aggregate([
+      { $match: { eventId: { $in: eventIds }, paymentStatus: "paid" } },
+      {
+        $lookup: {
+          from: "tickettypes", // Model name `TicketType` -> collection `tickettypes`
+          localField: "ticketTypeId",
+          foreignField: "_id",
+          as: "ticketType"
+        }
+      },
+      { $unwind: "$ticketType" },
+      {
+        $group: {
+          _id: null,
+          totalGross: { $sum: { $multiply: ["$persons", "$ticketType.price"] } },
+          totalCommission: { $sum: "$commissionAmount" }
+        }
+      }
+    ]);
+    
+    const grossRevenue = ticketRevenueResult[0]?.totalGross || 0;
+    const totalCommission = ticketRevenueResult[0]?.totalCommission || 0;
+    const totalRevenue = grossRevenue - totalCommission;
+
+    // 2. Tickets Sold & Entry Rate Data
     const ticketStats = await TicketType.aggregate([
       { $match: { eventId: { $in: eventIds } } },
       { $group: { _id: null, totalSold: { $sum: "$sold" } } }
     ]);
     const totalTicketsSold = ticketStats[0]?.totalSold || 0;
+
 
     // 3. Active Events
     const activeEventsCount = await Event.countDocuments({
