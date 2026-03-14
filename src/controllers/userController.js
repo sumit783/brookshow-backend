@@ -1260,7 +1260,24 @@ export const createArtistBooking = async (req, res) => {
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
     const { artistId } = req.params;
-    const {serviceId,startDate,endDate,eventName,advanceAmount,totalPrice,paidAmount} = req.body;
+    const {
+      serviceId,
+      startDate,
+      endDate,
+      eventName,
+      eventAddress,
+      eventCity,
+      eventState,
+      eventCountry,
+      eventPincode,
+      eventLat,
+      eventLng,
+      clientName,
+      clientPhoneNumber,
+      advanceAmount,
+      totalPrice,
+      paidAmount
+    } = req.body;
     if (!mongoose.Types.ObjectId.isValid(artistId)) {
       return res.status(400).json({ success: false, message: "Invalid artist ID format" });
     }
@@ -1287,7 +1304,17 @@ export const createArtistBooking = async (req, res) => {
       paidAmount:paidAmount,
       paymentStatus: "unpaid",
       startAt:startDate,
-      endAt:endDate
+      endAt:endDate,
+      clientName:clientName,
+      clientPhoneNumber:clientPhoneNumber,
+      eventName: eventName,
+      eventAddress: eventAddress,
+      eventCity: eventCity,
+      eventState: eventState,
+      eventCountry: eventCountry,
+      eventPincode: eventPincode,
+      eventLat: eventLat,
+      eventLng: eventLng
     });
 
     // Create Razorpay Order
