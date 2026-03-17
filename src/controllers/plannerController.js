@@ -251,6 +251,7 @@ export const verifyTicket = async (req, res) => {
 
     if (ticket.scannedPersons >= ticket.persons) {
       ticket.scanned = true;
+      ticket.isValide = false;
     }
 
     await ticket.save();

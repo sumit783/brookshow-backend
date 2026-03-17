@@ -2189,3 +2189,64 @@ export const getEventFilters = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+
+export const payBookingAdvance = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid booking ID format" });
+    }
+
+    const booking = await Booking.findById(id);
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+
+    // Allow payment only if status is pending and paymentStatus is unpaid
+    if (booking.status !== "pending") {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Payment is only allowed for pending bookings. Current status: ${booking.status}` 
+      });
+    }
+
+    if (booking.paymentStatus !== "unpaid") {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Booking payment status is ${booking.paymentStatus}, no advance payment required.` 
+      });
+    }
+
+    // Determine amount to pay: paidAmount (if set by frontend) or advanceAmount (from model)
+    const amountToPay = booking.paidAmount || booking.advanceAmount;
+
+    if (!amountToPay || amountToPay <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid payment amount for this booking" });
+    }
+
+    // Create Razorpay Order
+    // The second argument is the reference ID, which will be the booking ID
+    const razorpayOrder = await createOrder(amountToPay, booking._id.toString());
+
+    // Update booking with the new Razorpay Order ID
+    booking.razorpayOrderId = razorpayOrder.id;
+    await booking.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Razorpay order created for advance payment",
+      booking,
+      razorpayOrder: {
+        id: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency
+      }
+    });
+
+  } catch (error) {
+    console.error("payBookingAdvance error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
