@@ -468,7 +468,13 @@ export const checkArtistAvailability = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid end time format. Use HH:MM" });
     }
 
-    // Create start and end datetime objects
+    // Create start and end datetime objects for the query (block the whole day)
+    const queryStartAt = new Date(requestedStartDate);
+    queryStartAt.setHours(0, 0, 0, 0);
+
+    const queryEndAt = new Date(requestedEndDate);
+    queryEndAt.setHours(23, 59, 59, 999);
+
     const requestedStartAt = new Date(requestedStartDate);
     requestedStartAt.setHours(startHour, startMinute, 0, 0);
 
@@ -481,20 +487,19 @@ export const checkArtistAvailability = async (req, res) => {
     }
 
     // Check for conflicting bookings
-    // A booking conflicts if it overlaps with the requested time range
-    // Overlap formula: (start1 < end2) AND (end1 > start2)
+    // A booking conflicts if it overlaps with the requested time range (now blocking whole day)
     const conflictingBookings = await Booking.find({
       artistId: artistId,
       status: { $in: ["pending", "confirmed"] }, // Only check active bookings
-      startAt: { $lt: requestedEndAt },
-      endAt: { $gt: requestedStartAt }
+      startAt: { $lt: queryEndAt },
+      endAt: { $gt: queryStartAt }
     }).populate('serviceId', 'category unit');
 
     // Check for calendar blocks that might block the time
     const conflictingBlocks = await CalendarBlock.find({
       artistId: artistId,
-      startDate: { $lt: requestedEndAt },
-      endDate: { $gt: requestedStartAt }
+      startDate: { $lt: queryEndAt },
+      endDate: { $gt: queryStartAt }
     });
 
     const isAvailable = conflictingBookings.length === 0 && conflictingBlocks.length === 0;

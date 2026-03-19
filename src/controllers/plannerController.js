@@ -642,15 +642,20 @@ export const checkArtistAvailabilityWithPricing = async (req, res) => {
       return res.status(404).json({ success: false, message: "Service not found for this artist" });
     }
 
+    // Create start and end datetime objects for the query (block the whole day)
+    const queryStartAt = new Date(startDate);
+    queryStartAt.setHours(0, 0, 0, 0);
+
+    const queryEndAt = new Date(endDate);
+    queryEndAt.setHours(23, 59, 59, 999);
+
     // Check for conflicting bookings
+    // A booking conflicts if it overlaps with the requested day range
     const conflictingBooking = await Booking.findOne({
       artistId: artistId,
       status: { $in: ["pending", "confirmed"] },
-      $or: [
-        { startAt: { $lte: startDate }, endAt: { $gte: startDate } },
-        { startAt: { $lte: endDate }, endAt: { $gte: endDate } },
-        { startAt: { $gte: startDate }, endAt: { $lte: endDate } }
-      ]
+      startAt: { $lt: queryEndAt },
+      endAt: { $gt: queryStartAt }
     }).select("startAt endAt");
 
     const isAvailable = !conflictingBooking;
