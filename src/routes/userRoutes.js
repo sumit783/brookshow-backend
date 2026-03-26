@@ -1,5 +1,5 @@
 import express from "express";
-import { getTopArtists, createReview, getArtistReviews, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, searchArtists, searchEvents, getSearchFilters, getEventFilters, getEventById, buyTicket, verifyTicketPayment, getTicketById, getUserProfile, createArtistBooking, verifyArtistBookingPayment, getArtistPrice, getTicketTypesByEvent, getUserBookings, getUserBookingById, payBookingAdvance } from "../controllers/userController.js";
+import { getTopArtists, createReview, getArtistReviews, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, searchArtists, searchEvents, getSearchFilters, getEventFilters, getEventById, buyTicket, verifyTicketPayment, getTicketById, getUserProfile, createArtistBooking, verifyArtistBookingPayment, getArtistPrice, getTicketTypesByEvent, getUserBookings, getUserBookingById, payBookingAdvance, createContact } from "../controllers/userController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import {updateBookingStatus} from "../controllers/bookingController.js";
@@ -69,6 +69,9 @@ router.get("/bookings", checkApiKey, verifyToken, getUserBookings);
 router.get("/bookings/:id", checkApiKey, verifyToken, getUserBookingById);
 router.patch("/bookings/:id/status", checkApiKey, verifyToken, updateBookingStatus);
 router.post("/bookings/:id/pay-advance", checkApiKey, verifyToken, payBookingAdvance);
+
+// Save contact data
+router.post("/contact", checkApiKey, createContact);
 
 export default router;
 

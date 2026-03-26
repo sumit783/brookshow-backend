@@ -13,6 +13,7 @@ import mongoose from "mongoose";
 import QRCode from "qrcode";
 import CalendarBlock from "../models/CalendarBlock.js";
 import Commission from "../models/Commission.js";
+import Contact from "../models/Contact.js";
 import { createOrder, verifySignature } from "../utils/razorpay.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import { getTicketConfirmationTemplate } from "../utils/emailTemplates.js";
@@ -2252,6 +2253,34 @@ export const payBookingAdvance = async (req, res) => {
 
   } catch (error) {
     console.error("payBookingAdvance error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const createContact = async (req, res) => {
+  try {
+    const { name, email, subject, message } = req.body;
+
+    if (!name || !email || !subject || !message) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required (name, email, subject, message)",
+      });
+    }
+
+    const contact = await Contact.create({
+      name,
+      email,
+      subject,
+      message,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Contact message saved successfully",
+      contact,
+    });
+  } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 };

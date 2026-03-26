@@ -9,6 +9,7 @@ import MediaItem from "../models/MediaItem.js";
 import WithdrawalRequest from "../models/WithdrawalRequest.js";
 import User from "../models/User.js";
 import Commission from "../models/Commission.js";
+import Contact from "../models/Contact.js";
 
 export const getAllArtists = async (req, res) => {
   try {
@@ -904,6 +905,15 @@ export const getWithdrawalStats = async (req, res) => {
     ];
 
     return res.status(200).json(stats);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+};
+
+export const getAllContacts = async (req, res) => {
+  try {
+    const contacts = await Contact.find().sort({ createdAt: -1 });
+    return res.status(200).json(contacts);
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }

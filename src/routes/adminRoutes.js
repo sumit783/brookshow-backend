@@ -1,6 +1,6 @@
 import express from "express";
 import { verifySupabaseAdmin } from "../middlewares/adminAuthMiddleware.js";
-import { verifyArtist, rejectArtist, verifyPlanner, rejectPlanner, getAllArtists, getArtistById, getAllEvents, getEventById, getAllTransactions, getAllBookings, getBookingById, getTransactionById, getDashboardStats, getRevenueChartData, getBookingTrends, getAllPlanners, getPlannerById, getBookingStats, getAllWithdrawalRequests, getWithdrawalRequestById, updateWithdrawalStatus, getWithdrawalStats } from "../controllers/adminController.js";
+import { verifyArtist, rejectArtist, verifyPlanner, rejectPlanner, getAllArtists, getArtistById, getAllEvents, getEventById, getAllTransactions, getAllBookings, getBookingById, getTransactionById, getDashboardStats, getRevenueChartData, getBookingTrends, getAllPlanners, getPlannerById, getBookingStats, getAllWithdrawalRequests, getWithdrawalRequestById, updateWithdrawalStatus, getWithdrawalStats, getAllContacts } from "../controllers/adminController.js";
 import { createCategory, listCategories, getCategoryById, updateCategory, deleteCategory } from "../controllers/categoryController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 
@@ -48,5 +48,8 @@ router.get("/categories", checkApiKey, listCategories);
 router.get("/categories/:id", checkApiKey, getCategoryById);
 router.put("/categories/:id", checkApiKey, verifySupabaseAdmin, updateCategory);
 router.delete("/categories/:id", checkApiKey, verifySupabaseAdmin, deleteCategory);
+
+// Contact routes
+router.get("/contacts", checkApiKey, verifySupabaseAdmin, getAllContacts);
 
 export default router;
