@@ -21,12 +21,7 @@ export const requestLoginOtp = async (req, res) => {
         .json({ success: false, message: "Email or phone is required" });
     }
 
-    const identifier = email;
-    const user = await User.findOne({
-      $or: [
-        email ? { email } : undefined,
-      ].filter(Boolean),
-    });
+    const user = await User.findOne({email});
 
     if (!user) {
       return res
@@ -60,7 +55,12 @@ export const registerUser = async (req, res) => {
         .json({ success: false, message: "Email or phone is required" });
     }
 
-    const existing = await User.findOne({email:email || null});
+    const existing = await User.findOne({
+      $or: [
+        {email:email},
+        {phone:phone}
+      ],
+    });
 
     if (existing) {
       return res
@@ -69,8 +69,8 @@ export const registerUser = async (req, res) => {
     }
     const isAdminVerified = role=="user"?true:false
     const user = await User.create({
-      email: email || null,
-      phone: phone || null,
+      email,
+      phone,
       displayName,
       countryCode,
       role:role || "user",
