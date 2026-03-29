@@ -1,6 +1,7 @@
 import Booking from "../models/Booking.js";
 import CalendarBlock from "../models/CalendarBlock.js";
 import Artist from "../models/Artist.js";
+import WalletTransaction from "../models/WalletTransaction.js";
 import mongoose from "mongoose";
 
 export const createOfflineBooking = async (req, res) => {
@@ -112,6 +113,31 @@ export const updateBookingStatus = async (req, res) => {
         success: false,
         message: "Booking not found or you are not authorized to update it",
       });
+    }
+
+    // Handle fund transfer if status becomes "completed"
+    if (status === "completed" && !booking.isFundsTransferred && booking.paymentStatus === "paid") {
+      const artist = await Artist.findById(booking.artistId);
+      if (artist) {
+        const netAmount = (booking.paidAmount || 0) - (booking.commissionAmount || 0);
+        
+        // Move funds in wallet
+        artist.wallet = artist.wallet || { balance: 0, pendingAmount: 0, transactions: [] };
+        artist.wallet.pendingAmount = Math.max(0, artist.wallet.pendingAmount - netAmount);
+        artist.wallet.balance += netAmount;
+        await artist.save();
+
+        // Update WalletTransaction status to completed
+        await WalletTransaction.findOneAndUpdate(
+          { referenceId: booking._id.toString(), ownerId: artist._id, status: "pending" },
+          { status: "completed", description: booking.source === "planner" 
+            ? `Payment cleared for planner booking (Event Completed). Net: ${netAmount}`
+            : `Payment cleared for booking (Event Completed). Net: ${netAmount}` 
+          }
+        );
+
+        booking.isFundsTransferred = true;
+      }
     }
 
     // Update the status

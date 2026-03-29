@@ -79,6 +79,10 @@ const artistSchema = new mongoose.Schema(
     },
 
     verificationNote: { type: String, default: "" },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
 
     createdAt: {
       type: Date,

@@ -27,7 +27,8 @@ const bookingSchema = new mongoose.Schema(
     paymentStatus: { type: String, enum: ["unpaid","advance", "authorized", "paid", "refunded"], default: "unpaid" },
     razorpayOrderId: { type: String },
     razorpayPaymentId: { type: String },
-    razorpaySignature: { type: String }
+    razorpaySignature: { type: String },
+    isFundsTransferred: { type: Boolean, default: false }
   },
   { timestamps: true }
 );

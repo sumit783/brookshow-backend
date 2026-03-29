@@ -8,6 +8,7 @@ const ticketSchema = new mongoose.Schema(
     buyerName: String,
     buyerPhone: String,
     qrPayload: Object,
+    quantity: Number,
     persons: Number,
     scannedPersons: Number,
     isValide: { type: Boolean, default: true },

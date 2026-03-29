@@ -19,7 +19,7 @@ export const createTicketType = async (req, res) => {
     const plannerProfileId = await getPlannerProfileIdForUser(userId);
     if (!plannerProfileId) return res.status(404).json({ message: "Planner profile not found" });
 
-    const { eventId, title, price, quantity, salesStart, salesEnd } = req.body;
+    const { eventId, title, price, quantity, salesStart, salesEnd, allowedPersons } = req.body;
     if (!eventId || !title || price === undefined || quantity === undefined) {
       return res.status(400).json({ message: "eventId, title, price, and quantity are required" });
     }
@@ -34,6 +34,7 @@ export const createTicketType = async (req, res) => {
       quantity,
       salesStart,
       salesEnd,
+      allowedPersons: allowedPersons || 1,
       sold: 0,
     });
 

@@ -19,6 +19,7 @@ import {
   getBankDetails,
   updateBankDetail,
   deleteBankDetail,
+  toggleArtistActiveStatus,
 } from "../controllers/artistController.js";
 import { getArtistBookings, updateBookingStatus } from "../controllers/bookingController.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
@@ -103,6 +104,9 @@ router.post("/withdraw", checkApiKey, verifyToken, requestWithdrawal);
 
 // Bookings for artist
 router.get("/bookings", checkApiKey, verifyToken, getArtistBookings);
+
+// Toggle Active Status
+router.patch("/toggle-active", checkApiKey, verifyToken, toggleArtistActiveStatus);
 
 // Booking Status Update
 router.patch("/bookings/:id/status", checkApiKey, verifyToken, updateBookingStatus);

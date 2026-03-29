@@ -108,6 +108,7 @@ export const updateArtistProfile = async (req, res) => {
       try { updates.eventPricing = typeof req.body.eventPricing === 'string' ? JSON.parse(req.body.eventPricing) : req.body.eventPricing; } catch { updates.eventPricing = {}; }
     }
     if (req.body.location !== undefined) updates.location = getBodyField(req.body.location);
+    if (req.body.isActive !== undefined) updates.isActive = req.body.isActive === 'true' || req.body.isActive === true;
     if (req.files['profileImage']) updates.profileImage = "/uploads/" + req.files['profileImage'][0].filename;
     const artist = await Artist.findOne({ userId });
     if (!artist) return res.status(404).json({ message: 'Artist profile not found for user' });
@@ -252,8 +253,8 @@ export const deleteArtistMedia = async (req, res) => {
       return res.status(404).json({ message: 'No such media item for your artist profile' });
     }
     const filePath = "." + item.url;
-    if (item.url && filePath.startsWith("./uploads/") && require('fs').existsSync(filePath)) {
-      require('fs').unlinkSync(filePath);
+    if (item.url && filePath.startsWith("./uploads/") && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
     }
     await item.deleteOne();
     return res.status(204).send();
@@ -278,7 +279,7 @@ export const listCategories = async (req, res) => {
 
 export const listAllArtists = async (req, res) => {
   try {
-    const artists = await Artist.find().lean().populate("userId");
+    const artists = await Artist.find({ isActive: true }).lean().populate("userId");
 
     if (artists.length === 0) {
       return res.status(200).json({ success: true, artists: [] });
@@ -598,6 +599,28 @@ export const deleteBankDetail = async (req, res) => {
     }
 
     return res.status(200).json({ success: true, message: "Bank detail deleted" });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+// Toggle Artist Active Status
+export const toggleArtistActiveStatus = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user.userId;
+    const artist = await Artist.findOne({ userId });
+
+    if (!artist) {
+      return res.status(404).json({ success: false, message: "Artist profile not found" });
+    }
+
+    artist.isActive = !artist.isActive;
+    await artist.save();
+
+    return res.status(200).json({ 
+      success: true, 
+      message: `Artist status changed to ${artist.isActive ? 'active' : 'inactive'}`, 
+      isActive: artist.isActive 
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }

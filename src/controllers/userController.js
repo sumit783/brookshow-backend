@@ -21,8 +21,8 @@ import { ENV } from "../config/env.js";
 
 export const getTopArtists = async (req, res) => {
   try {
-    // Get top 4 verified artists
-    const artists = await Artist.find({ verificationStatus: "verified" })
+    // Get top 4 verified and active artists
+    const artists = await Artist.find({ verificationStatus: "verified", isActive: true })
       .populate("userId", "displayName")
       .limit(4)
       .sort({ createdAt: -1 }); // You can change sorting criteria (e.g., by rating, bookings count, etc.)
@@ -291,6 +291,7 @@ export const getSimilarArtists = async (req, res) => {
     const query = {
       _id: { $ne: currentArtist._id }, // Exclude current artist
       verificationStatus: "verified", // Only verified artists
+      isActive: true, // Only active artists
     };
 
     // Find artists with matching categories
@@ -315,6 +316,7 @@ export const getSimilarArtists = async (req, res) => {
       const queryWithoutLocation = {
         _id: { $ne: currentArtist._id },
         verificationStatus: "verified",
+        isActive: true,
       };
       if (currentArtist.category && currentArtist.category.length > 0) {
         queryWithoutLocation.category = { $in: currentArtist.category };
@@ -435,10 +437,14 @@ export const checkArtistAvailability = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid service ID format" });
     }
 
-    // Check if artist exists
+    // Check if artist exists AND is active
     const artist = await Artist.findById(artistId);
-    if (!artist) {
-      return res.status(404).json({ success: false, message: "Artist not found" });
+    if (!artist || !artist.isActive) {
+      return res.status(200).json({ 
+        success: true, 
+        available: false, 
+        message: !artist ? "Artist not found" : "Artist is currently not accepting bookings" 
+      });
     }
 
     // Check if service exists and belongs to the artist
@@ -763,8 +769,8 @@ export const getEvents = async (req, res) => {
 
 export const getAllArtists = async (req, res) => {
   try {
-    // Get all verified artists
-    const artists = await Artist.find({ verificationStatus: "verified" })
+    // Get all verified and active artists
+    const artists = await Artist.find({ verificationStatus: "verified", isActive: true })
       .populate("userId", "displayName")
       .sort({ createdAt: -1 }); // Sort by creation date, newest first
 
@@ -1065,7 +1071,8 @@ export const buyTicket = async (req, res) => {
       userId,
       buyerName,
       buyerPhone,
-      persons: quantity,
+      quantity: quantity,
+      persons: quantity * (ticketType.allowedPersons || 1),
       scannedPersons: 0,
       isValide: false,
       issuedAt: new Date()
@@ -1152,7 +1159,7 @@ export const verifyTicketPayment = async (req, res) => {
     }
 
     // Verify availability one last time before finalizing
-    if (ticketType.sold + ticket.persons > ticketType.quantity) {
+    if (ticketType.sold + ticket.quantity > ticketType.quantity) {
       return res.status(400).json({ 
         success: false, 
         message: "Oversell detected. Tickets are no longer available in this quantity." 
@@ -1167,11 +1174,11 @@ export const verifyTicketPayment = async (req, res) => {
     await ticket.save();
 
     // Update ticket type sold count
-    ticketType.sold += ticket.persons;
+    ticketType.sold += ticket.quantity;
     await ticketType.save();
 
     // Update planner's wallet balance
-    const totalPrice = ticketType.price * ticket.persons;
+    const totalPrice = ticketType.price * (ticket.quantity || 1);
     
     // 💰 Handle Ticket Commission calculation from global settings
     const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
@@ -1193,7 +1200,7 @@ export const verifyTicketPayment = async (req, res) => {
       amount: plannerNetCredit,
       source: "booking",
       referenceId: ticket._id.toString(),
-      description: `Ticket sale for ${event.title} (${ticket.persons} qty, Total: ${totalPrice}, Commission: ${ticketCommissionAmount})`,
+      description: `Ticket sale for ${event.title} (${ticket.quantity} qty, ${ticket.persons} persons, Total: ${totalPrice}, Commission: ${ticketCommissionAmount})`,
       status: "completed"
     });
 
@@ -1399,12 +1406,12 @@ export const verifyArtistBookingPayment = async (req, res) => {
     // Use the already calculated commissionValue
     const artistNetCredit = booking.paidAmount - commissionValue;
 
-    // Update Artist Wallet
+    // Update Artist Wallet (Move to pendingAmount until completion)
     artist.wallet = artist.wallet || { balance: 0, pendingAmount: 0, transactions: [] };
-    artist.wallet.balance += artistNetCredit;
+    artist.wallet.pendingAmount += artistNetCredit;
     await artist.save();
 
-    // Create Wallet Transaction for Artist
+    // Create Wallet Transaction for Artist (Status: pending)
     await WalletTransaction.create({
       ownerId: artist._id,
       ownerType: "artist",
@@ -1412,8 +1419,8 @@ export const verifyArtistBookingPayment = async (req, res) => {
       amount: artistNetCredit,
       source: "booking",
       referenceId: booking._id.toString(),
-      description: `Advance payment for booking (Total: ${booking.totalPrice}, Paid: ${booking.paidAmount}, Commission: ${commissionValue})`,
-      status: "completed"
+      description: `Advance payment for booking (Held in pending until completion). Total: ${booking.totalPrice}, Paid: ${booking.paidAmount}, Commission: ${commissionValue}`,
+      status: "pending"
     });
 
     return res.status(200).json({ 
@@ -1492,6 +1499,13 @@ export const getArtistPrice = async (req, res) => {
     }
 
     // Check artist availability for the requested date range
+    if (!artist || !artist.isActive) {
+      return res.status(200).json({
+        success: true,
+        available: false,
+        message: "Artist is currently not accepting bookings"
+      });
+    }
     // Check for conflicting bookings (pending or confirmed status)
     const conflictingBookings = await Booking.find({
       artistId: artistId,
@@ -1606,7 +1620,7 @@ export const getTicketById = async (req, res) => {
           select: "organization logoUrl"
         }
       })
-      .populate("ticketTypeId", "title price");
+      .populate("ticketTypeId", "title price allowedPersons");
 
     if (!ticket) {
       return res.status(404).json({ success: false, message: "Ticket not found" });
@@ -1649,7 +1663,7 @@ export const getUserProfile = async (req, res) => {
             select: "organization logoUrl"
           }
         })
-        .populate("ticketTypeId", "title price")
+        .populate("ticketTypeId", "title price allowedPersons")
         .sort({ createdAt: -1 }); // Newest tickets first
     }
 
@@ -1691,8 +1705,8 @@ export const getUserProfile = async (req, res) => {
           image: ticket.eventId.plannerProfileId?.logoUrl // Or event image if available, logic might need adjustment based on Event model
         } : null,
         ticketType: ticket.ticketTypeId?.title,
-        quantity: ticket.persons,
-        totalPrice: ticket.ticketTypeId?.price ? ticket.ticketTypeId.price * ticket.persons : 0,
+        quantity: (ticket.quantity || 1),
+        totalPrice: ticket.ticketTypeId?.price ? ticket.ticketTypeId.price * (ticket.quantity || 1) : 0,
         purchaseDate: ticket.createdAt,
         qrDataUrl: ticket.qrDataUrl,
         isValid: ticket.isValide,
@@ -1727,7 +1741,7 @@ export const getTicketTypesByEvent = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid event ID format" });
     }
 
-    const ticketTypes = await TicketType.find({ eventId }).select("title _id price");
+    const ticketTypes = await TicketType.find({ eventId }).select("title _id price allowedPersons");
 
     return res.status(200).json({
       success: true,
@@ -1735,6 +1749,7 @@ export const getTicketTypesByEvent = async (req, res) => {
         id: tt._id,
         name: tt.title,
         price: tt.price,
+        allowedPersonsPerTicket: tt.allowedPersons,
       })),
     });
   } catch (error) {
@@ -1855,7 +1870,7 @@ export const searchArtists = async (req, res) => {
   try {
     const { name, location, talent, startDate, endDate } = req.query;
 
-    let artistQuery = { verificationStatus: "verified" };
+    let artistQuery = { verificationStatus: "verified", isActive: true };
     let userQuery = {};
 
     // 1. Filter by Name (User Model)

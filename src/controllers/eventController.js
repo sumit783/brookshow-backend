@@ -77,6 +77,7 @@ export const listEvents = async (req, res) => {
         price: ticket.price,
         quantity: ticket.quantity,
         sold: ticket.sold,
+        allowedPersons: ticket.allowedPersons,
       });
     });
 
@@ -111,6 +112,7 @@ export const getEventById = async (req, res) => {
       price: ticket.price,
       quantity: ticket.quantity,
       sold: ticket.sold,
+      allowedPersons: ticket.allowedPersons,
     }));
 
     return res.status(200).json({ event: { ...event, bannerUrl: cover?.url || "", ticketData } });

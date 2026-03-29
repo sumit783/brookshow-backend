@@ -8,9 +8,9 @@ import { initCronJobs } from "./utils/cronJobs.js";
 
 dotenv.config();
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT;
 const MONGO_URI = process.env.MONGO_URI;
-const DB_NAME = process.env.DB_NAME || "brookshow";
+const DB_NAME = process.env.DB_NAME;
 
 async function startServer() {
   try {

@@ -566,12 +566,12 @@ export const verifyArtistBookingPayment = async (req, res) => {
 
     const artistNetCredit = booking.paidAmount - commissionValue;
 
-    // Update Artist Wallet
+    // Update Artist Wallet (Held in pending until event completion)
     artist.wallet = artist.wallet || { balance: 0, pendingAmount: 0, transactions: [] };
-    artist.wallet.balance += artistNetCredit;
+    artist.wallet.pendingAmount += artistNetCredit;
     await artist.save();
 
-    // Create Wallet Transaction for Artist
+    // Create Wallet Transaction for Artist (Status: pending)
     await WalletTransaction.create({
       ownerId: artist._id,
       ownerType: "artist",
@@ -579,8 +579,8 @@ export const verifyArtistBookingPayment = async (req, res) => {
       amount: artistNetCredit,
       source: "booking",
       referenceId: booking._id.toString(),
-      description: `Advance payment for planner booking (Total: ${booking.totalPrice}, Paid: ${booking.paidAmount}, Commission: ${commissionValue})`,
-      status: "completed"
+      description: `Advance payment for planner booking (Held in pending until completion). Total: ${booking.totalPrice}, Paid: ${booking.paidAmount}, Commission: ${commissionValue}`,
+      status: "pending"
     });
 
     return res.status(200).json({
@@ -630,10 +630,14 @@ export const checkArtistAvailabilityWithPricing = async (req, res) => {
       return res.status(400).json({ success: false, message: "End date must be after start date" });
     }
 
-    // Check if artist exists
-    const artist = await Artist.findById(artistId).select("userId category location");
-    if (!artist) {
-      return res.status(404).json({ success: false, message: "Artist not found" });
+    // Check if artist exists AND is active
+    const artist = await Artist.findById(artistId).select("userId category location isActive");
+    if (!artist || !artist.isActive) {
+      return res.status(200).json({ 
+        success: true, 
+        available: false, 
+        message: !artist ? "Artist not found" : "Artist is currently not accepting bookings" 
+      });
     }
 
     // Check if service exists and belongs to the artist
@@ -805,7 +809,7 @@ export const getDashboardRevenue = async (req, res) => {
             month: { $month: "$createdAt" },
             year: { $year: "$createdAt" }
           },
-          totalGross: { $sum: { $multiply: ["$persons", "$ticketType.price"] } },
+          totalGross: { $sum: { $multiply: [{ $ifNull: ["$quantity", "$persons"] }, "$ticketType.price"] } },
           totalCommission: { $sum: "$commissionAmount" },
           bookings: { $sum: 1 }
         }
@@ -962,7 +966,7 @@ export const getDashboardMetrics = async (req, res) => {
       {
         $group: {
           _id: null,
-          totalGross: { $sum: { $multiply: ["$persons", "$ticketType.price"] } },
+          totalGross: { $sum: { $multiply: [{ $ifNull: ["$quantity", "$persons"] }, "$ticketType.price"] } },
           totalCommission: { $sum: "$commissionAmount" }
         }
       }
@@ -1061,9 +1065,13 @@ export const getArtistPrice = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid artist or service ID format" });
     }
 
-    const artist = await Artist.findById(artistId);
-    if (!artist) {
-      return res.status(404).json({ success: false, message: "Artist not found" });
+    const artist = await Artist.findById(artistId).select("isActive");
+    if (!artist || !artist.isActive) {
+      return res.status(200).json({ 
+        success: true, 
+        available: false, 
+        message: !artist ? "Artist not found" : "Artist is currently not accepting bookings" 
+      });
     }
 
     const service = await Service.findOne({ _id: serviceId, artistId: artistId });

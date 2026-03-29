@@ -7,6 +7,7 @@ const ticketTypeSchema = new mongoose.Schema(
     price: Number,
     quantity: Number,
     sold: { type: Number, default: 0 },
+    allowedPersons: { type: Number, default: 1 },
     salesStart: Date,
     salesEnd: Date,
   },
