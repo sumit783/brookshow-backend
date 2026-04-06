@@ -437,9 +437,9 @@ export const checkArtistAvailability = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid service ID format" });
     }
 
-    // Check if artist exists AND is active
+    // Check if artist exists AND is available
     const artist = await Artist.findById(artistId);
-    if (!artist || !artist.isActive) {
+    if (!artist || !artist.isAvailable) {
       return res.status(200).json({ 
         success: true, 
         available: false, 
@@ -1498,12 +1498,13 @@ export const getArtistPrice = async (req, res) => {
       return res.status(400).json({ success: false, message: "endDate must be after startDate" });
     }
 
-    // Check artist availability for the requested date range
-    if (!artist || !artist.isActive) {
+    // Check artist exists AND is available
+    const artist = await Artist.findById(artistId);
+    if (!artist || !artist.isAvailable) {
       return res.status(200).json({
         success: true,
         available: false,
-        message: "Artist is currently not accepting bookings"
+        message: !artist ? "Artist not found" : "Artist is currently not accepting bookings"
       });
     }
     // Check for conflicting bookings (pending or confirmed status)

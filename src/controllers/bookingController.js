@@ -33,6 +33,10 @@ export const createOfflineBooking = async (req, res) => {
 
     const savedBooking = await newBooking.save();
 
+    // Mark artist as unavailable when a booking is received
+    artist.isAvailable = false;
+    await artist.save();
+
     // Create a calendar block for the offline booking
     const newCalendarBlock = new CalendarBlock({
       artistId: artist._id,
@@ -138,6 +142,17 @@ export const updateBookingStatus = async (req, res) => {
 
         booking.isFundsTransferred = true;
       }
+    }
+
+    // Toggle artist isAvailable based on new booking status
+    const bookingArtist = await Artist.findById(booking.artistId);
+    if (bookingArtist) {
+      if (status === "completed" || status === "cancelled") {
+        bookingArtist.isAvailable = true;  // Free up the artist
+      } else if (status === "confirmed" || status === "pending") {
+        bookingArtist.isAvailable = false; // Artist is occupied
+      }
+      await bookingArtist.save();
     }
 
     // Update the status

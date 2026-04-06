@@ -84,6 +84,11 @@ const artistSchema = new mongoose.Schema(
       default: true,
     },
 
+    isAvailable: {
+      type: Boolean,
+      default: true,
+    },
+
     createdAt: {
       type: Date,
       default: Date.now,

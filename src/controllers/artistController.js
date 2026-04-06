@@ -613,13 +613,13 @@ export const toggleArtistActiveStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: "Artist profile not found" });
     }
 
-    artist.isActive = !artist.isActive;
+    artist.isAvailable = !artist.isAvailable;
     await artist.save();
 
     return res.status(200).json({ 
       success: true, 
-      message: `Artist status changed to ${artist.isActive ? 'active' : 'inactive'}`, 
-      isActive: artist.isActive 
+      message: `Artist availability changed to ${artist.isAvailable ? 'available' : 'unavailable'}`, 
+      isAvailable: artist.isAvailable 
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
