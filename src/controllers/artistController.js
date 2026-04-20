@@ -9,6 +9,7 @@ import WithdrawalRequest from "../models/WithdrawalRequest.js";
 import WalletTransaction from "../models/WalletTransaction.js";
 import BankDetail from "../models/BankDetail.js";
 import Booking from "../models/Booking.js";
+import { deleteFromCloudinary } from "../utils/cloudinary.js";
 
 function getBodyField(value) {
   if (typeof value === "string") {
@@ -51,10 +52,12 @@ export const createArtistProfile = async (req, res) => {
     if (!bio || categories.length === 0) {
       return res.status(400).json({ message: 'bio and at least one category are required' });
     }
-    const profileImage = req.files['profileImage']?.[0] ? "/uploads/" + req.files['profileImage'][0].filename : "";
+    const profileImage = req.files['profileImage']?.[0]?.path || "";
+    const profileImagePublicId = req.files['profileImage']?.[0]?.filename || "";
     const artist = await Artist.create({
       userId,
       profileImage,
+      profileImagePublicId,
       bio,
       category: categories,
       location,
@@ -109,7 +112,10 @@ export const updateArtistProfile = async (req, res) => {
     }
     if (req.body.location !== undefined) updates.location = getBodyField(req.body.location);
     if (req.body.isActive !== undefined) updates.isActive = req.body.isActive === 'true' || req.body.isActive === true;
-    if (req.files['profileImage']) updates.profileImage = "/uploads/" + req.files['profileImage'][0].filename;
+    if (req.files['profileImage']) {
+      updates.profileImage = req.files['profileImage'][0].path;
+      updates.profileImagePublicId = req.files['profileImage'][0].filename;
+    }
     const artist = await Artist.findOne({ userId });
     if (!artist) return res.status(404).json({ message: 'Artist profile not found for user' });
 
@@ -147,24 +153,24 @@ export const getArtistProfile = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
     console.log("getArtistProfile called for userId:", userId);
-    
+
     const artist = await Artist.findOne({ userId }).lean().populate("userId");
-    
+
     if (!artist) {
       console.log("Artist profile NOT FOUND in database for userId:", userId);
       return res.status(404).json({ message: 'Artist profile not found for user' });
     }
-    
+
     if (!artist.userId) {
       console.log("Artist found but populated userId is NULL for userId:", userId);
       return res.status(404).json({ message: 'Artist profile not found for user' });
     }
-    
+
     console.log("Artist profile found successfully for userId:", userId);
     const exclude = (({ eventPricing, bookings, wallet, calendar, ...obj }) => obj);
     const artistData = exclude(artist);
     const media = await MediaItem.find({ ownerType: "artist", ownerId: artist._id });
-    
+
     // Fetch statistical data
     const completedBookings = await Booking.countDocuments({ artistId: artist._id, status: "completed" });
     const confirmedBookings = await Booking.countDocuments({ artistId: artist._id, status: "confirmed" });
@@ -201,8 +207,20 @@ export const deleteArtistProfile = async (req, res) => {
     const userId = req.user.id;
     const artist = await Artist.findOne({ userId });
     if (!artist) return res.status(404).json({ message: 'Artist profile not found for user' });
-    // Optionally: delete uploaded files from disk (
-    [artist.profileImage, ...(artist.photos || []), ...(artist.videos || [])].forEach(f => {
+    // Delete Cloudinary assets
+    if (artist.profileImage) {
+      await deleteFromCloudinary(artist.profileImagePublicId || artist.profileImage);
+    }
+    
+    // Delete all portfolio media from Cloudinary
+    const artistMedia = await MediaItem.find({ ownerType: "artist", ownerId: artist._id });
+    for (const item of artistMedia) {
+      await deleteFromCloudinary(item.publicId || item.url, item.type === "video" ? "video" : "image");
+    }
+    await MediaItem.deleteMany({ ownerType: "artist", ownerId: artist._id });
+
+    // Legacy local deletion (optional, kept for robustness)
+    [artist.profileImage].forEach(f => {
       if (f && f.startsWith("/uploads/")) {
         fs.existsSync('.' + f) && fs.unlinkSync('.' + f);
       }
@@ -230,7 +248,8 @@ export const uploadArtistMedia = async (req, res) => {
           ownerType: "artist",
           ownerId: artist._id,
           type,
-          url: "/uploads/" + f.filename
+          url: f.path,
+          publicId: f.filename
         });
         return media;
       })
@@ -252,6 +271,10 @@ export const deleteArtistMedia = async (req, res) => {
     if (!item || item.ownerType !== "artist" || String(item.ownerId) !== String(artist._id)) {
       return res.status(404).json({ message: 'No such media item for your artist profile' });
     }
+    // Delete from Cloudinary
+    await deleteFromCloudinary(item.publicId || item.url, item.type === "video" ? "video" : "image");
+
+    // Legacy local deletion
     const filePath = "." + item.url;
     if (item.url && filePath.startsWith("./uploads/") && fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
@@ -426,9 +449,9 @@ export const listWalletTransactions = async (req, res) => {
       return res.status(404).json({ success: false, message: "Artist profile not found" });
     }
 
-    const transactions = await WalletTransaction.find({ 
-      ownerId: artist._id, 
-      ownerType: "artist" 
+    const transactions = await WalletTransaction.find({
+      ownerId: artist._id,
+      ownerType: "artist"
     }).sort({ createdAt: -1 });
 
     return res.status(200).json({ success: true, transactions });
@@ -452,18 +475,18 @@ export const requestWithdrawal = async (req, res) => {
     }
 
     // Check for pending withdrawals to calculate available balance
-    const pendingWithdrawals = await WithdrawalRequest.find({ 
-      userId, 
-      status: "pending" 
+    const pendingWithdrawals = await WithdrawalRequest.find({
+      userId,
+      status: "pending"
     });
-    
+
     const totalPendingAmount = pendingWithdrawals.reduce((sum, req) => sum + req.amount, 0);
     const availableBalance = artist.wallet.balance - totalPendingAmount;
 
     if (availableBalance < amount) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Insufficient available balance. Your current balance is ${artist.wallet.balance}, but you have ${totalPendingAmount} in pending withdrawals.` 
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient available balance. Your current balance is ${artist.wallet.balance}, but you have ${totalPendingAmount} in pending withdrawals.`
       });
     }
 
@@ -531,9 +554,9 @@ export const addBankDetail = async (req, res) => {
     const hasUpi = !!upiId;
 
     if (!hasBankDetails && !hasUpi) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Please provide either full bank details (Account No, Name, IFSC, Holder Name) or a UPI ID" 
+      return res.status(400).json({
+        success: false,
+        message: "Please provide either full bank details (Account No, Name, IFSC, Holder Name) or a UPI ID"
       });
     }
 
@@ -572,7 +595,7 @@ export const updateBankDetail = async (req, res) => {
     const updates = req.body;
 
     const bankDetail = await BankDetail.findOne({ _id: id, userId });
-    
+
     if (!bankDetail) {
       return res.status(404).json({ success: false, message: "Bank detail not found" });
     }
@@ -616,10 +639,10 @@ export const toggleArtistActiveStatus = async (req, res) => {
     artist.isAvailable = !artist.isAvailable;
     await artist.save();
 
-    return res.status(200).json({ 
-      success: true, 
-      message: `Artist availability changed to ${artist.isAvailable ? 'available' : 'unavailable'}`, 
-      isAvailable: artist.isAvailable 
+    return res.status(200).json({
+      success: true,
+      message: `Artist availability changed to ${artist.isAvailable ? 'available' : 'unavailable'}`,
+      isAvailable: artist.isAvailable
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });

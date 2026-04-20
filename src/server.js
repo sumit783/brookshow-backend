@@ -18,6 +18,10 @@ async function startServer() {
       dbName: DB_NAME,
       useNewUrlParser: true,
       useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 30000, // Wait 30s before failing
+      socketTimeoutMS: 45000,       // Close sockets after 45s of inactivity
+      connectTimeoutMS: 30000,      // Give up initial connection after 30s
+      heartbeatFrequencyMS: 10000,  // Check server status every 10s
     });
 
     console.log(`MongoDB connected to database: ${DB_NAME}`);
@@ -26,6 +30,12 @@ async function startServer() {
     initCronJobs();
 
     const server = http.createServer(app);
+
+    // Increase server timeouts for large file uploads (Hero Images)
+    server.timeout = 300000;         // 5 minutes
+    server.keepAliveTimeout = 65000; // slightly higher than browser default
+    server.headersTimeout = 66000;   // must be higher than keepAliveTimeout
+
     server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });

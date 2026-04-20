@@ -5,6 +5,7 @@ const plannerProfileSchema = new mongoose.Schema(
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     organization: { type: String },
     logoUrl: { type: String, default: "" },
+    logoPublicId: { type: String, default: "" },
     verified: { type: Boolean, default: false },
     verificationNote: { type: String, default: "" },
     walletBalance: { type: Number, default: 0 },

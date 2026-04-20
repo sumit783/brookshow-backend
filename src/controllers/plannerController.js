@@ -12,6 +12,7 @@ import Service from "../models/Service.js";
 import BankDetail from "../models/BankDetail.js";
 import CalendarBlock from "../models/CalendarBlock.js";
 import mongoose from "mongoose";
+import { deleteFromCloudinary } from "../utils/cloudinary.js";
 import { createOrder, verifySignature } from "../utils/razorpay.js";
 import Commission from "../models/Commission.js";
 
@@ -31,7 +32,8 @@ export const createPlannerProfile = async (req, res) => {
       organization,
     };
     if (req.file) {
-      payload.logoUrl = "/uploads/" + req.file.filename;
+      payload.logoUrl = req.file.path;
+      payload.logoPublicId = req.file.filename;
     }
 
     const profile = await PlannerProfile.create(payload);
@@ -79,7 +81,10 @@ export const updatePlannerProfile = async (req, res) => {
     const updates = {};
     const { organization } = req.body;
     if (organization !== undefined) updates.organization = organization;
-    if (req.file) updates.logoUrl = "/uploads/" + req.file.filename;
+    if (req.file) {
+      updates.logoUrl = req.file.path;
+      updates.logoPublicId = req.file.filename;
+    }
 
     const profile = await PlannerProfile.findOneAndUpdate({ userId }, updates, { new: true });
     if (!profile) return res.status(404).json({ message: "Planner profile not found" });
@@ -95,6 +100,9 @@ export const deletePlannerProfile = async (req, res) => {
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
     const profile = await PlannerProfile.findOne({ userId });
     if (!profile) return res.status(404).json({ message: "Planner profile not found" });
+    if (profile.logoUrl) {
+      await deleteFromCloudinary(profile.logoPublicId || profile.logoUrl);
+    }
     await PlannerProfile.deleteOne({ userId });
     return res.status(204).send();
   } catch (err) {

@@ -6,6 +6,7 @@ const mediaItemSchema = new mongoose.Schema(
     ownerId: { type: mongoose.Schema.Types.ObjectId, required: true },
     type: { type: String, enum: ["image", "video"], required: true },
     url: String,
+    publicId: String,
     isCover: { type: Boolean, default: false },
   },
   { timestamps: true }

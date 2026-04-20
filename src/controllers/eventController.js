@@ -2,6 +2,7 @@ import Event from "../models/Event.js";
 import PlannerProfile from "../models/PlannerProfile.js";
 import MediaItem from "../models/MediaItem.js";
 import TicketType from "../models/TicketType.js";
+import { deleteFromCloudinary } from "../utils/cloudinary.js";
 
 async function getPlannerProfileIdForUser(userId) {
   const profile = await PlannerProfile.findOne({ userId }).select("_id");
@@ -39,7 +40,8 @@ export const createEvent = async (req, res) => {
         ownerType: "event",
         ownerId: event._id,
         type: "image",
-        url: "/uploads/" + req.file.filename,
+        url: req.file.path,
+        publicId: req.file.filename,
         isCover: true,
       });
       bannerUrl = media.url;
@@ -157,7 +159,8 @@ export const updateEvent = async (req, res) => {
         ownerType: "event",
         ownerId: event._id,
         type: "image",
-        url: "/uploads/" + req.file.filename,
+        url: req.file.path,
+        publicId: req.file.filename,
         isCover: true,
       });
       bannerUrl = media.url;
@@ -180,6 +183,14 @@ export const deleteEvent = async (req, res) => {
     if (!plannerProfileId) return res.status(404).json({ message: "Planner profile not found" });
 
     const { id } = req.params;
+    
+    // Delete associated media from Cloudinary
+    const eventMedia = await MediaItem.find({ ownerType: "event", ownerId: id });
+    for (const item of eventMedia) {
+      await deleteFromCloudinary(item.publicId || item.url);
+    }
+    await MediaItem.deleteMany({ ownerType: "event", ownerId: id });
+
     const deleted = await Event.findOneAndDelete({ _id: id, plannerProfileId });
     if (!deleted) return res.status(404).json({ message: "Event not found" });
     return res.status(204).send();

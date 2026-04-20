@@ -2,7 +2,9 @@ import express from "express";
 import { verifySupabaseAdmin } from "../middlewares/adminAuthMiddleware.js";
 import { verifyArtist, rejectArtist, verifyPlanner, rejectPlanner, getAllArtists, getArtistById, getAllEvents, getEventById, getAllTransactions, getAllBookings, getBookingById, getTransactionById, getDashboardStats, getRevenueChartData, getBookingTrends, getAllPlanners, getPlannerById, getBookingStats, getAllWithdrawalRequests, getWithdrawalRequestById, updateWithdrawalStatus, getWithdrawalStats, getAllContacts } from "../controllers/adminController.js";
 import { createCategory, listCategories, getCategoryById, updateCategory, deleteCategory } from "../controllers/categoryController.js";
+import { createHeroImage, listHeroImages, updateHeroImage, deleteHeroImage } from "../controllers/heroController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
+import { cloudinaryUpload } from "../middlewares/uploadMiddleware.js";
 
 const router = express.Router();
 
@@ -51,5 +53,15 @@ router.delete("/categories/:id", checkApiKey, verifySupabaseAdmin, deleteCategor
 
 // Contact routes
 router.get("/contacts", checkApiKey, verifySupabaseAdmin, getAllContacts);
+
+// Hero Image routes
+router.get("/hero", checkApiKey, listHeroImages);
+router.post("/hero", checkApiKey, verifySupabaseAdmin, cloudinaryUpload.fields([
+  { name: "desktopHero", maxCount: 1 },
+  { name: "tabletHero", maxCount: 1 },
+  { name: "mobileHero", maxCount: 1 }
+]), createHeroImage);
+router.put("/hero/:id", checkApiKey, verifySupabaseAdmin, updateHeroImage);
+router.delete("/hero/:id", checkApiKey, verifySupabaseAdmin, deleteHeroImage);
 
 export default router;

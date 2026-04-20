@@ -12,7 +12,12 @@ const artistSchema = new mongoose.Schema(
 
     // Media files
     profileImage: {
-      type: String, // local file path (uploads/profile/filename.jpg)
+      type: String, // Cloudinary URL
+      default: "",
+    },
+
+    profileImagePublicId: {
+      type: String, // Cloudinary public_id for easy deletion
       default: "",
     },
 

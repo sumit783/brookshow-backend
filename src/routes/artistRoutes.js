@@ -25,32 +25,12 @@ import { getArtistBookings, updateBookingStatus } from "../controllers/bookingCo
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 
+import { cloudinaryUpload } from "../middlewares/uploadMiddleware.js";
+
 const router = express.Router();
 
-// Resolve uploads directory (allow override via env)
-const resolvedUploads = process.env.UPLOADS_DIR
-  ? path.resolve(process.env.UPLOADS_DIR)
-  : path.resolve("uploads");
+const uploadMiddleware = cloudinaryUpload;
 
-// Create uploads dir if not exists
-if (!fs.existsSync(resolvedUploads)) {
-  fs.mkdirSync(resolvedUploads, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, resolvedUploads);
-  },
-  filename: function (req, file, cb) {
-    const ext = path.extname(file.originalname);
-    const fileName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
-    cb(null, fileName);
-  },
-});
-
-const uploadMiddleware = multer({
-  storage,
-});
 
 // Get active categories (public route)
 router.get("/categories", checkApiKey, listCategories);

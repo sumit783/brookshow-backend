@@ -1,5 +1,6 @@
 import express from "express";
 import { getTopArtists, createReview, getArtistReviews, getArtistById, getSimilarArtists, checkArtistAvailability, getArtistServices, getEvents, getAllArtists, searchArtists, searchEvents, getSearchFilters, getEventFilters, getEventById, buyTicket, verifyTicketPayment, getTicketById, getUserProfile, createArtistBooking, verifyArtistBookingPayment, getArtistPrice, getTicketTypesByEvent, getUserBookings, getUserBookingById, payBookingAdvance, createContact } from "../controllers/userController.js";
+import { listHeroImages } from "../controllers/heroController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import {updateBookingStatus} from "../controllers/bookingController.js";
@@ -8,6 +9,9 @@ const router = express.Router();
 
 // Get top 4 artists (public route, no auth required)
 router.get("/top-artists", checkApiKey, getTopArtists);
+
+// Get hero images (public route, no auth required)
+router.get("/hero", checkApiKey, listHeroImages);
 
 // Search artists
 router.get("/search-artist", checkApiKey, searchArtists);
