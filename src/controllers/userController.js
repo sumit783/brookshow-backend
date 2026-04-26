@@ -256,6 +256,7 @@ export const getArtistById = async (req, res) => {
       specialties: specialties.length > 0 ? specialties : [],
       bio: artist.bio || "",
       price: price,
+      isAvailable: artist.isAvailable || false,
       portfolio: {
         images: portfolioImages.length > 0 ? portfolioImages : [],
         videos: portfolioVideos.length > 0 ? portfolioVideos : [],
