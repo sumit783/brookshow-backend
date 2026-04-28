@@ -557,6 +557,7 @@ export const verifyArtistBookingPayment = async (req, res) => {
     const commissionValue = (booking.totalPrice * commissionPercent) / 100;
 
     booking.commissionAmount = commissionValue;
+    booking.isFundsTransferred = true;
     await booking.save();
 
     const artist = await Artist.findById(booking.artistId);
@@ -575,12 +576,14 @@ export const verifyArtistBookingPayment = async (req, res) => {
     // Wallet is only for advance receive. Even if paidAmount is more, only advanceAmount - commission enters the wallet.
     const artistNetCredit = (booking.advanceAmount || booking.paidAmount) - commissionValue;
 
-    // Update Artist Wallet (Held in pending until event completion)
-    artist.wallet = artist.wallet || { balance: 0, pendingAmount: 0, transactions: [] };
-    artist.wallet.pendingAmount += artistNetCredit;
-    await artist.save();
+    // Update Artist Wallet (Add directly to balance)
+    await Artist.findByIdAndUpdate(
+      artist._id,
+      { $inc: { "wallet.balance": artistNetCredit } },
+      { new: true }
+    );
 
-    // Create Wallet Transaction for Artist (Status: pending)
+    // Create Wallet Transaction for Artist (Status: completed)
     await WalletTransaction.create({
       ownerId: artist._id,
       ownerType: "artist",
@@ -588,8 +591,8 @@ export const verifyArtistBookingPayment = async (req, res) => {
       amount: artistNetCredit,
       source: "booking",
       referenceId: booking._id.toString(),
-      description: `Advance payment for planner booking (Held in pending until completion). Total: ${booking.totalPrice}, Advance: ${booking.advanceAmount}, Commission: ${commissionValue}`,
-      status: "pending"
+      description: `Advance payment for planner booking. Total: ${booking.totalPrice}, Advance: ${booking.advanceAmount}, Commission: ${commissionValue}`,
+      status: "completed"
     });
 
     return res.status(200).json({
