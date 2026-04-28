@@ -120,10 +120,12 @@ export const updateBookingStatus = async (req, res) => {
     }
 
     // Handle fund transfer if status becomes "completed"
-    if (status === "completed" && !booking.isFundsTransferred && booking.paymentStatus === "paid") {
+    // Wallet is only for advance receive, so we move advance amount - commission
+    if (status === "completed" && !booking.isFundsTransferred && (booking.paymentStatus === "paid" || booking.paymentStatus === "advance")) {
       const artist = await Artist.findById(booking.artistId);
       if (artist) {
-        const netAmount = (booking.paidAmount || 0) - (booking.commissionAmount || 0);
+        // netAmount is based on advanceAmount as requested (wallet is only for advance)
+        const netAmount = (booking.advanceAmount || 0) - (booking.commissionAmount || 0);
         
         // Move funds in wallet
         artist.wallet = artist.wallet || { balance: 0, pendingAmount: 0, transactions: [] };

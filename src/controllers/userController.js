@@ -1405,7 +1405,8 @@ export const verifyArtistBookingPayment = async (req, res) => {
     });
 
     // Use the already calculated commissionValue
-    const artistNetCredit = booking.paidAmount - commissionValue;
+    // Wallet is only for advance receive. Even if paidAmount is more, only advanceAmount - commission enters the wallet.
+    const artistNetCredit = (booking.advanceAmount || booking.paidAmount) - commissionValue;
 
     // Update Artist Wallet (Move to pendingAmount until completion)
     artist.wallet = artist.wallet || { balance: 0, pendingAmount: 0, transactions: [] };
@@ -1420,7 +1421,7 @@ export const verifyArtistBookingPayment = async (req, res) => {
       amount: artistNetCredit,
       source: "booking",
       referenceId: booking._id.toString(),
-      description: `Advance payment for booking (Held in pending until completion). Total: ${booking.totalPrice}, Paid: ${booking.paidAmount}, Commission: ${commissionValue}`,
+      description: `Advance payment for booking (Held in pending until completion). Total: ${booking.totalPrice}, Advance: ${booking.advanceAmount}, Commission: ${commissionValue}`,
       status: "pending"
     });
 
