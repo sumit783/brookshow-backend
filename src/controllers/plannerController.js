@@ -423,13 +423,38 @@ export const createArtistBooking = async (req, res) => {
     const plannerProfile = await PlannerProfile.findOne({ userId: plannerUserId });
     if (!plannerProfile) return res.status(404).json({ success: false, message: "Planner profile not found" });
 
-    const { artistId, serviceId, eventId, eventName, startAt, endAt, advanceAmount, paidAmount } = req.body;
+    const {
+      artistId,
+      serviceId,
+      eventId,
+      eventName,
+      eventAddress,
+      eventCity,
+      eventState,
+      eventCountry,
+      eventPincode,
+      eventLat,
+      eventLng,
+      clientPhoneNumber,
+      clientName,
+      startAt,
+      endAt,
+      advanceAmount,
+      paidAmount
+    } = req.body;
 
     // Validate required fields
-    if (!artistId || !serviceId || !startAt || !endAt || !eventName) {
+    if (!artistId || !serviceId || !startAt || !endAt) {
       return res.status(400).json({
         success: false,
-        message: "Artist ID, Service ID, event name, start date, and end date are required"
+        message: "Artist ID, Service ID, start date, and end date are required"
+      });
+    }
+
+    if (!eventId && !eventName) {
+      return res.status(400).json({
+        success: false,
+        message: "Either eventId or eventName is required"
       });
     }
 
@@ -488,7 +513,16 @@ export const createArtistBooking = async (req, res) => {
       artistId: artistId,
       serviceId: serviceId,
       eventId: eventId || null,
-      eventName: eventName,
+      eventName: eventName || null,
+      eventAddress: eventAddress || null,
+      eventCity: eventCity || null,
+      eventState: eventState || null,
+      eventCountry: eventCountry || null,
+      eventPincode: eventPincode || null,
+      eventLat: eventLat || null,
+      eventLng: eventLng || null,
+      clientPhoneNumber: clientPhoneNumber || null,
+      clientName: clientName || null,
       source: "planner",
       startAt: startDate,
       endAt: endDate,

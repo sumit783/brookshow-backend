@@ -170,6 +170,40 @@ export const updateBookingStatus = async (req, res) => {
     res.status(500).json({ success: false, message: error.message });
   }
 };
+export const getArtistBookingById = async (req, res) => {
+  try {
+    const userId = req.user.id || req.user.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "User ID not found in token" });
+    }
+
+    const artist = await Artist.findOne({ userId });
+    if (!artist) {
+      return res.status(404).json({ success: false, message: "Artist profile not found for this user" });
+    }
+
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid booking ID format" });
+    }
+
+    const booking = await Booking.findOne({ _id: id, artistId: artist._id })
+      .populate("clientId", "displayName email phone countryCode")
+      .populate("serviceId")
+      .populate("eventId");
+
+    if (!booking) {
+      return res.status(404).json({ success: false, message: "Booking not found" });
+    }
+
+    res.status(200).json({ success: true, booking });
+  } catch (error) {
+    console.error("getArtistBookingById error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const getArtistBookings = async (req, res) => {
   try {
     const userId = req.user.id || req.user.userId;
