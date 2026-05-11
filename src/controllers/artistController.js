@@ -33,6 +33,7 @@ export const createArtistProfile = async (req, res) => {
     }
 
     const { bio, city, state, country } = req.body;
+    const experianceYear = req.body.experianceYear ? parseFloat(req.body.experianceYear) : undefined;
     const location = { city, state, country };
     let _category = req.body.category;
     // Accept array or comma-separated string
@@ -59,6 +60,7 @@ export const createArtistProfile = async (req, res) => {
       profileImage,
       profileImagePublicId,
       bio,
+      experianceYear,
       category: categories,
       location,
       eventPricing: eventPricing || {},
@@ -97,6 +99,9 @@ export const updateArtistProfile = async (req, res) => {
     const updates = {};
     const { bio } = req.body;
     if (bio !== undefined) updates.bio = bio;
+    if (req.body.experianceYear !== undefined) {
+      updates.experianceYear = parseFloat(req.body.experianceYear);
+    }
     let _category = req.body.category;
     if (_category !== undefined) {
       let categories = Array.isArray(_category)

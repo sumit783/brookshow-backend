@@ -27,6 +27,10 @@ const artistSchema = new mongoose.Schema(
       maxlength: 1000,
     },
 
+    experianceYear: {
+      type: Number,
+    },
+
     category: [
       {
         type: String,
