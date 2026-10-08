@@ -15,6 +15,7 @@ import mongoose from "mongoose";
 import { deleteFromCloudinary } from "../utils/cloudinary.js";
 import { createOrder, verifySignature } from "../utils/razorpay.js";
 import Commission from "../models/Commission.js";
+import Scan from "../models/Scan.js";
 
 export const createPlannerProfile = async (req, res) => {
   try {
@@ -263,6 +264,20 @@ export const verifyTicket = async (req, res) => {
     }
 
     await ticket.save();
+
+    // Record scan entry if scanner employee
+    try {
+      const employee = await PlannerEmployee.findOne({ employeeId: userId, isActive: true });
+      await Scan.create({
+        ticketId: ticket._id,
+        eventId: ticket.eventId?._id || ticket.eventId,
+        scannerId: employee ? employee._id : null,
+        result: "valid",
+        timestamp: new Date()
+      });
+    } catch (scanLogErr) {
+      console.warn("Could not create Scan log:", scanLogErr);
+    }
 
     return res.status(200).json({
       success: true,
@@ -1253,6 +1268,258 @@ export const getBookingDetails = async (req, res) => {
     return res.status(200).json({ success: true, booking });
   } catch (err) {
     console.error("Planner getBookingDetails error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ==================== OFFLINE TICKET MANAGEMENT ====================
+
+// Batch Create Offline Tickets
+export const createOfflineTicketsBatch = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const plannerProfileId = await getPlannerIdForUser(userId);
+    if (!plannerProfileId) {
+      return res.status(403).json({ success: false, message: "Unauthorized: Not a planner or active employee" });
+    }
+
+    const { eventId, ticketTypeId, quantity = 1, buyerName, buyerPhone } = req.body;
+
+    if (!eventId || !mongoose.Types.ObjectId.isValid(eventId)) {
+      return res.status(400).json({ success: false, message: "Valid Event ID is required" });
+    }
+
+    const event = await Event.findById(eventId);
+    if (!event) {
+      return res.status(404).json({ success: false, message: "Event not found" });
+    }
+
+    if (event.plannerProfileId.toString() !== plannerProfileId.toString()) {
+      return res.status(403).json({ success: false, message: "You are not authorized for this event" });
+    }
+
+    let ticketType = null;
+    if (ticketTypeId && mongoose.Types.ObjectId.isValid(ticketTypeId)) {
+      ticketType = await TicketType.findById(ticketTypeId);
+    }
+    if (!ticketType) {
+      ticketType = await TicketType.findOne({ eventId });
+    }
+
+    const allowedPerTicket = ticketType?.allowedPersons || 1;
+    const batchCount = Math.max(1, Math.min(Number(quantity) || 1, 500));
+    const timestamp = Date.now();
+    const createdTickets = [];
+
+    for (let i = 1; i <= batchCount; i++) {
+      const ticketNumber = `OFF-${event.title.slice(0, 3).toUpperCase()}-${String(timestamp).slice(-4)}-${String(i).padStart(4, "0")}`;
+      const attendeeName = buyerName ? (batchCount > 1 ? `${buyerName} #${i}` : buyerName) : `Walk-in Guest #${i}`;
+
+      const newTicket = new Ticket({
+        ticketTypeId: ticketType?._id,
+        eventId: event._id,
+        userId,
+        buyerName: attendeeName,
+        buyerPhone: buyerPhone || "",
+        quantity: 1,
+        persons: allowedPerTicket,
+        scannedPersons: 0,
+        isValide: true,
+        scanned: false,
+        paymentStatus: "paid",
+        issuedAt: new Date(),
+      });
+
+      const qrPayload = {
+        ticketId: newTicket._id.toString(),
+        eventId: event._id.toString(),
+        buyerName: attendeeName,
+        type: ticketType?.title || "General Admission",
+        isOffline: true,
+        ticketNumber,
+        timestamp: Date.now()
+      };
+
+      newTicket.qrPayload = qrPayload;
+      await newTicket.save();
+
+      createdTickets.push({
+        ticketId: newTicket._id.toString(),
+        ticketNumber,
+        eventId: event._id.toString(),
+        eventTitle: event.title,
+        eventDate: event.startAt,
+        eventVenue: `${event.venue || ""}${event.city ? ", " + event.city : ""}`,
+        ticketTypeId: ticketType?._id?.toString(),
+        ticketTypeName: ticketType?.title || "General Admission",
+        ticketPrice: ticketType?.price || 0,
+        qrPayload: JSON.stringify(qrPayload),
+        buyerName: attendeeName,
+        buyerPhone: buyerPhone || "",
+        persons: allowedPerTicket,
+        scannedPersons: 0,
+        isValide: true,
+        scanned: false,
+        createdAt: newTicket.createdAt.toISOString()
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `Successfully generated ${createdTickets.length} offline tickets`,
+      tickets: createdTickets
+    });
+  } catch (err) {
+    console.error("createOfflineTicketsBatch error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// List Offline Tickets (or all tickets for planner's events)
+export const listOfflineTickets = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const plannerProfileId = await getPlannerIdForUser(userId);
+    if (!plannerProfileId) {
+      return res.status(403).json({ success: false, message: "Unauthorized: Not a planner or active employee" });
+    }
+
+    const { eventId } = req.query;
+
+    let eventIds = [];
+    if (eventId && mongoose.Types.ObjectId.isValid(eventId)) {
+      const event = await Event.findById(eventId);
+      if (event && event.plannerProfileId.toString() === plannerProfileId.toString()) {
+        eventIds = [event._id];
+      } else {
+        return res.status(403).json({ success: false, message: "Unauthorized for this event" });
+      }
+    } else {
+      const events = await Event.find({ plannerProfileId }).select("_id");
+      eventIds = events.map(e => e._id);
+    }
+
+    const tickets = await Ticket.find({
+      eventId: { $in: eventIds },
+      "qrPayload.isOffline": true
+    })
+      .populate("ticketTypeId", "title price")
+      .populate("eventId", "title startAt venue city")
+      .sort({ createdAt: -1 });
+
+    const formatted = tickets.map(t => ({
+      ticketId: t._id.toString(),
+      ticketNumber: t.qrPayload?.ticketNumber || `OFF-${t._id.toString().slice(-6).toUpperCase()}`,
+      eventId: t.eventId?._id?.toString() || "",
+      eventTitle: t.eventId?.title || "Event",
+      eventDate: t.eventId?.startAt || t.issuedAt,
+      eventVenue: `${t.eventId?.venue || ""}${t.eventId?.city ? ", " + t.eventId.city : ""}`,
+      ticketTypeId: t.ticketTypeId?._id?.toString() || "",
+      ticketTypeName: t.ticketTypeId?.title || "General Admission",
+      ticketPrice: t.ticketTypeId?.price || 0,
+      qrPayload: typeof t.qrPayload === "object" ? JSON.stringify(t.qrPayload) : (t.qrPayload || ""),
+      buyerName: t.buyerName || "Guest",
+      buyerPhone: t.buyerPhone || "",
+      persons: t.persons,
+      scannedPersons: t.scannedPersons || 0,
+      isValide: t.isValide,
+      scanned: t.scanned,
+      createdAt: t.createdAt
+    }));
+
+    return res.status(200).json({ success: true, tickets: formatted });
+  } catch (err) {
+    console.error("listOfflineTickets error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Update Offline Ticket
+export const updateOfflineTicket = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const plannerProfileId = await getPlannerIdForUser(userId);
+    if (!plannerProfileId) {
+      return res.status(403).json({ success: false, message: "Unauthorized: Not a planner or active employee" });
+    }
+
+    const { id } = req.params;
+    const { buyerName, buyerPhone, ticketTypeId } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid ticket ID" });
+    }
+
+    const ticket = await Ticket.findById(id).populate("eventId", "plannerProfileId");
+    if (!ticket) {
+      return res.status(404).json({ success: false, message: "Ticket not found" });
+    }
+
+    if (!ticket.eventId || ticket.eventId.plannerProfileId.toString() !== plannerProfileId.toString()) {
+      return res.status(403).json({ success: false, message: "Unauthorized to update this ticket" });
+    }
+
+    if (buyerName !== undefined) ticket.buyerName = buyerName;
+    if (buyerPhone !== undefined) ticket.buyerPhone = buyerPhone;
+    if (ticketTypeId && mongoose.Types.ObjectId.isValid(ticketTypeId)) {
+      ticket.ticketTypeId = ticketTypeId;
+    }
+
+    // Keep qrPayload synced
+    if (ticket.qrPayload) {
+      ticket.qrPayload = {
+        ...ticket.qrPayload,
+        buyerName: ticket.buyerName,
+        ticketId: ticket._id.toString()
+      };
+      ticket.markModified("qrPayload");
+    }
+
+    await ticket.save();
+
+    return res.status(200).json({ success: true, message: "Ticket updated successfully", ticket });
+  } catch (err) {
+    console.error("updateOfflineTicket error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Delete Offline Ticket
+export const deleteOfflineTicket = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const plannerProfileId = await getPlannerIdForUser(userId);
+    if (!plannerProfileId) {
+      return res.status(403).json({ success: false, message: "Unauthorized: Not a planner or active employee" });
+    }
+
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid ticket ID" });
+    }
+
+    const ticket = await Ticket.findById(id).populate("eventId", "plannerProfileId");
+    if (!ticket) {
+      return res.status(404).json({ success: false, message: "Ticket not found" });
+    }
+
+    if (!ticket.eventId || ticket.eventId.plannerProfileId.toString() !== plannerProfileId.toString()) {
+      return res.status(403).json({ success: false, message: "Unauthorized to delete this ticket" });
+    }
+
+    await Ticket.findByIdAndDelete(id);
+
+    return res.status(200).json({ success: true, message: "Ticket deleted successfully" });
+  } catch (err) {
+    console.error("deleteOfflineTicket error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };

@@ -1,10 +1,14 @@
 // src/server.js
 import http from "http";
 import dotenv from "dotenv";
+import dns from "dns";
 import app from "./app.js";
 import mongoose from "mongoose";
 import { dropLegacyArtistIndexes } from "./models/Artist.js";
 import { initCronJobs } from "./utils/cronJobs.js";
+
+// Ensure Node.js resolves MongoDB Atlas SRV records correctly on Windows / local ISP DNS
+dns.setServers(["8.8.8.8", "1.1.1.1", "8.8.4.4"]);
 
 dotenv.config();
 

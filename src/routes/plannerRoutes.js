@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions, requestWithdrawal, createArtistBooking, verifyArtistBookingPayment, getPlannerEvents, listMyWithdrawalRequests, getDashboardRevenue, getDashboardTicketDistribution, getDashboardRecentEvents, getDashboardMetrics, getArtistPrice, getBookedArtists, getBookingDetails } from "../controllers/plannerController.js";
+import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions, requestWithdrawal, createArtistBooking, verifyArtistBookingPayment, getPlannerEvents, listMyWithdrawalRequests, getDashboardRevenue, getDashboardTicketDistribution, getDashboardRecentEvents, getDashboardMetrics, getArtistPrice, getBookedArtists, getBookingDetails, createOfflineTicketsBatch, listOfflineTickets, updateOfflineTicket, deleteOfflineTicket } from "../controllers/plannerController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import { createEvent, listEvents, getEventById, updateEvent, deleteEvent, getEventAndId } from "../controllers/eventController.js";
@@ -68,6 +68,12 @@ router.post("/verify-ticket", checkApiKey, verifyToken, verifyTicket);
 
 // Get specific ticket data by ID
 router.get("/ticket-data/:id", checkApiKey, verifyToken, getTicketDataById);
+
+// Offline Tickets Management
+router.post("/offline-tickets/batch", checkApiKey, verifyToken, createOfflineTicketsBatch);
+router.get("/offline-tickets", checkApiKey, verifyToken, listOfflineTickets);
+router.put("/offline-tickets/:id", checkApiKey, verifyToken, updateOfflineTicket);
+router.delete("/offline-tickets/:id", checkApiKey, verifyToken, deleteOfflineTicket);
 
 // Artist Booking
 router.post("/bookings/artist", checkApiKey, verifyToken, createArtistBooking);
