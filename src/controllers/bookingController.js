@@ -2,7 +2,7 @@ import Booking from "../models/Booking.js";
 import CalendarBlock from "../models/CalendarBlock.js";
 import Artist from "../models/Artist.js";
 import WalletTransaction from "../models/WalletTransaction.js";
-import mongoose from "mongoose";
+import mongoose from "../config/firestore.js";
 
 export const createOfflineBooking = async (req, res) => {
   try {

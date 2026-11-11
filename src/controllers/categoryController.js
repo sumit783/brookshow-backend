@@ -1,5 +1,5 @@
 import Category from "../models/Category.js";
-import mongoose from "mongoose";
+import mongoose from "../config/firestore.js";
 
 export const createCategory = async (req, res) => {
   try {

@@ -1,9 +1,10 @@
-import mongoose from "mongoose";
+import mongoose from "../config/firestore.js";
 
 const commissionSchema = new mongoose.Schema(
   {
     artistBookingCommission: { type: Number, default: 0 },
     ticketSellCommission: { type: Number, default: 0 },
+    offlineTicketCommission: { type: Number, default: 0 },
   },
   { timestamps: true }
 );

@@ -1,18 +1,13 @@
-import mongoose from "mongoose";
+import firestore from "./firestore.js";
 
 export const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 30000, 
-      socketTimeoutMS: 45000,       
-      connectTimeoutMS: 30000,      
-      heartbeatFrequencyMS: 10000,
-    });
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
+    await firestore.connect();
+    console.log(`[Firebase] Firestore connected successfully for database: brookshow-16c93`);
   } catch (error) {
-    console.error(`MongoDB Connection Error: ${error.message}`);
+    console.error(`[Firebase] Firestore Connection Error: ${error.message}`);
     process.exit(1);
   }
 };
+
+export default connectDB;

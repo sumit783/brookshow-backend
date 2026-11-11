@@ -1,5 +1,5 @@
 // src/models/Artist.js
-import mongoose from "mongoose";
+import mongoose from "../config/firestore.js";
 
 const artistSchema = new mongoose.Schema(
   {

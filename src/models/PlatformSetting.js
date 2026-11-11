@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose from "../config/firestore.js";
 
 const platformSettingSchema = new mongoose.Schema({
   platformChargePercentage: { type: Number, default: 10.0 },

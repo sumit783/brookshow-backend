@@ -9,7 +9,7 @@ import TicketType from "../models/TicketType.js";
 import PlannerProfile from "../models/PlannerProfile.js";
 import Ticket from "../models/Ticket.js";
 import WalletTransaction from "../models/WalletTransaction.js";
-import mongoose from "mongoose";
+import mongoose from "../config/firestore.js";
 import QRCode from "qrcode";
 import CalendarBlock from "../models/CalendarBlock.js";
 import Commission from "../models/Commission.js";
@@ -1063,8 +1063,16 @@ export const buyTicket = async (req, res) => {
       return res.status(404).json({ success: false, message: "Planner profile not found" });
     }
 
-    // Calculate total price
-    const totalPrice = ticketType.price * quantity;
+    // Calculate base ticket price
+    const baseTicketPrice = ticketType.price * quantity;
+
+    // Fetch platform charges / commission rate (paid by customer)
+    const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
+    const platformFeePercent = commissionSettings ? (commissionSettings.ticketSellCommission || 0) : 0;
+    const platformFeeAmount = Number(((baseTicketPrice * platformFeePercent) / 100).toFixed(2));
+
+    // Customer pays total = Base Ticket Price + Platform Charges
+    const totalCustomerAmount = Number((baseTicketPrice + platformFeeAmount).toFixed(2));
 
     // Create the ticket instance (don't save yet)
     const ticket = new Ticket({
@@ -1077,7 +1085,8 @@ export const buyTicket = async (req, res) => {
       persons: quantity * (ticketType.allowedPersons || 1),
       scannedPersons: 0,
       isValide: false,
-      issuedAt: new Date()
+      issuedAt: new Date(),
+      commissionAmount: platformFeeAmount,
     });
 
     // Generate QR Data content and URL
@@ -1105,8 +1114,8 @@ export const buyTicket = async (req, res) => {
     // Save the ticket
     await ticket.save();
 
-    // Create Razorpay Order
-    const razorpayOrder = await createOrder(totalPrice, ticket._id.toString());
+    // Create Razorpay Order with total amount (Base Ticket Price + Platform Charges)
+    const razorpayOrder = await createOrder(totalCustomerAmount, ticket._id.toString());
     
     // Update ticket with Razorpay Order ID
     ticket.razorpayOrderId = razorpayOrder.id;
@@ -1116,6 +1125,12 @@ export const buyTicket = async (req, res) => {
       success: true,
       message: "Order created successfully",
       ticket,
+      pricing: {
+        basePrice: baseTicketPrice,
+        platformFeePercent,
+        platformFee: platformFeeAmount,
+        totalAmount: totalCustomerAmount,
+      },
       razorpayOrder: {
         id: razorpayOrder.id,
         amount: razorpayOrder.amount,
@@ -1179,30 +1194,30 @@ export const verifyTicketPayment = async (req, res) => {
     ticketType.sold += ticket.quantity;
     await ticketType.save();
 
-    // Update planner's wallet balance
-    const totalPrice = ticketType.price * (ticket.quantity || 1);
+    // Calculate base ticket price (what planner receives in full)
+    const baseTicketPrice = ticketType.price * (ticket.quantity || 1);
     
-    // 💰 Handle Ticket Commission calculation from global settings
+    // 💰 Handle Ticket Commission / Platform Charges calculation (paid by customer)
     const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
-    const ticketCommissionPercent = commissionSettings ? commissionSettings.ticketSellCommission : 0;
-    const ticketCommissionAmount = (totalPrice * ticketCommissionPercent) / 100;
-    const plannerNetCredit = totalPrice - ticketCommissionAmount;
+    const platformFeePercent = commissionSettings ? (commissionSettings.ticketSellCommission || 0) : 0;
+    const platformFeeAmount = ticket.commissionAmount || Number(((baseTicketPrice * platformFeePercent) / 100).toFixed(2));
 
-    ticket.commissionAmount = ticketCommissionAmount;
+    ticket.commissionAmount = platformFeeAmount;
     await ticket.save();
 
-    plannerProfile.walletBalance += plannerNetCredit;
+    // Event planner receives 100% of base ticket price
+    plannerProfile.walletBalance = (plannerProfile.walletBalance || 0) + baseTicketPrice;
     await plannerProfile.save();
 
-    // Create wallet transaction record
+    // Create wallet transaction record for planner
     await WalletTransaction.create({
       ownerId: plannerProfile._id,
       ownerType: "planner",
       type: "credit",
-      amount: plannerNetCredit,
+      amount: baseTicketPrice,
       source: "booking",
       referenceId: ticket._id.toString(),
-      description: `Ticket sale for ${event.title} (${ticket.quantity} qty, ${ticket.persons} persons, Total: ${totalPrice}, Commission: ${ticketCommissionAmount})`,
+      description: `Online ticket sale for ${event.title} (${ticket.quantity} qty, ${ticket.persons} persons). Credit: ₹${baseTicketPrice} (Platform fee: ₹${platformFeeAmount} paid by customer)`,
       status: "completed"
     });
 
@@ -1748,15 +1763,20 @@ export const getTicketTypesByEvent = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid event ID format" });
     }
 
-    const ticketTypes = await TicketType.find({ eventId }).select("title _id price allowedPersons");
+    const ticketTypes = await TicketType.find({ eventId }).select("title _id price allowedPersons quantity sold");
+    const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
+    const platformFeePercent = commissionSettings ? (commissionSettings.ticketSellCommission || 0) : 0;
 
     return res.status(200).json({
       success: true,
+      platformFeePercent,
       ticketTypes: ticketTypes.map((tt) => ({
         id: tt._id,
         name: tt.title,
         price: tt.price,
         allowedPersonsPerTicket: tt.allowedPersons,
+        remainingTickets: Math.max(0, (tt.quantity || 0) - (tt.sold || 0)),
+        isSoldOut: (tt.sold || 0) >= (tt.quantity || 0)
       })),
     });
   } catch (error) {

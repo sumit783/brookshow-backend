@@ -2,9 +2,13 @@ import Commission from "../models/Commission.js";
 
 export const getCommission = async (req, res) => {
   try {
-    const commission = await Commission.findOne().sort({ createdAt: -1 });
+    let commission = await Commission.findOne().sort({ createdAt: -1 });
     if (!commission) {
-      return res.status(404).json({ success: false, message: "Commission settings not found" });
+      commission = await Commission.create({
+        artistBookingCommission: 10,
+        ticketSellCommission: 5,
+        offlineTicketCommission: 5,
+      });
     }
     res.status(200).json({ success: true, commission });
   } catch (error) {
@@ -14,11 +18,12 @@ export const getCommission = async (req, res) => {
 
 export const createCommission = async (req, res) => {
   try {
-    const { artistBookingCommission, ticketSellCommission } = req.body;
+    const { artistBookingCommission, ticketSellCommission, offlineTicketCommission } = req.body;
     
     const newCommission = new Commission({
-      artistBookingCommission,
-      ticketSellCommission,
+      artistBookingCommission: Number(artistBookingCommission) || 0,
+      ticketSellCommission: Number(ticketSellCommission) || 0,
+      offlineTicketCommission: Number(offlineTicketCommission) || 0,
     });
 
     await newCommission.save();
@@ -31,12 +36,17 @@ export const createCommission = async (req, res) => {
 export const updateCommission = async (req, res) => {
   try {
     const { id } = req.params;
-    const { artistBookingCommission, ticketSellCommission } = req.body;
+    const { artistBookingCommission, ticketSellCommission, offlineTicketCommission } = req.body;
+
+    const updateData = {};
+    if (artistBookingCommission !== undefined) updateData.artistBookingCommission = Number(artistBookingCommission);
+    if (ticketSellCommission !== undefined) updateData.ticketSellCommission = Number(ticketSellCommission);
+    if (offlineTicketCommission !== undefined) updateData.offlineTicketCommission = Number(offlineTicketCommission);
 
     const commission = await Commission.findByIdAndUpdate(
       id,
-      { artistBookingCommission, ticketSellCommission },
-      { new: true }
+      updateData,
+      { new: true, upsert: true }
     );
 
     if (!commission) {

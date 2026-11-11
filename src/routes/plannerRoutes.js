@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions, requestWithdrawal, createArtistBooking, verifyArtistBookingPayment, getPlannerEvents, listMyWithdrawalRequests, getDashboardRevenue, getDashboardTicketDistribution, getDashboardRecentEvents, getDashboardMetrics, getArtistPrice, getBookedArtists, getBookingDetails, createOfflineTicketsBatch, listOfflineTickets, updateOfflineTicket, deleteOfflineTicket } from "../controllers/plannerController.js";
+import { createPlannerProfile, getPlannerProfile, updatePlannerProfile, deletePlannerProfile, getPlannerWallet, listPlannerTransactions, requestWithdrawal, createArtistBooking, verifyArtistBookingPayment, getPlannerEvents, listMyWithdrawalRequests, getDashboardRevenue, getDashboardTicketDistribution, getDashboardRecentEvents, getDashboardMetrics, getArtistPrice, getBookedArtists, getBookingDetails, createOfflineTicketsBatch, listOfflineTickets, updateOfflineTicket, deleteOfflineTicket, exportOfflineTicketsPdf, initiateOfflineTicketSale, verifyOfflineTicketSale, sellOfflineTicketDirect } from "../controllers/plannerController.js";
 import { checkApiKey } from "../middlewares/apiKeyMiddleware.js";
 import { verifyToken } from "../middlewares/authMiddleware.js";
 import { createEvent, listEvents, getEventById, updateEvent, deleteEvent, getEventAndId } from "../controllers/eventController.js";
@@ -74,6 +74,12 @@ router.post("/offline-tickets/batch", checkApiKey, verifyToken, createOfflineTic
 router.get("/offline-tickets", checkApiKey, verifyToken, listOfflineTickets);
 router.put("/offline-tickets/:id", checkApiKey, verifyToken, updateOfflineTicket);
 router.delete("/offline-tickets/:id", checkApiKey, verifyToken, deleteOfflineTicket);
+router.get("/offline-tickets/export-pdf", checkApiKey, verifyToken, exportOfflineTicketsPdf);
+router.post("/offline-tickets/export-pdf", checkApiKey, verifyToken, exportOfflineTicketsPdf);
+router.post("/offline-tickets/:id/initiate-sale", checkApiKey, verifyToken, initiateOfflineTicketSale);
+router.post("/offline-tickets/:id/verify-sale", checkApiKey, verifyToken, verifyOfflineTicketSale);
+router.post("/offline-tickets/instant-sale", checkApiKey, verifyToken, sellOfflineTicketDirect);
+
 
 // Artist Booking
 router.post("/bookings/artist", checkApiKey, verifyToken, createArtistBooking);

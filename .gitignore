@@ -25,6 +25,8 @@ temp/
 .env.development.local
 .env.test.local
 .env.production.local
+*-firebase-adminsdk-*.json
+firebase-adminsdk-*.json
 
 # Logs
 logs/

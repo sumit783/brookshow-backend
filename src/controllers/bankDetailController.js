@@ -1,5 +1,5 @@
 import BankDetail from "../models/BankDetail.js";
-import mongoose from "mongoose";
+import mongoose from "../config/firestore.js";
 
 // Add Bank Detail
 export const addBankDetail = async (req, res) => {

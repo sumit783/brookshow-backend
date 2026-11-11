@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose from "../config/firestore.js";
 
 const contactSchema = new mongoose.Schema({
     name: {

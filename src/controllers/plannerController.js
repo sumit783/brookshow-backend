@@ -1,3 +1,5 @@
+import QRCode from "qrcode";
+import { generateTicketsPdfStream } from "../utils/pdfTicketGenerator.js";
 import PlannerProfile from "../models/PlannerProfile.js";
 import WalletTransaction from "../models/WalletTransaction.js";
 import User from "../models/User.js";
@@ -11,7 +13,7 @@ import Artist from "../models/Artist.js";
 import Service from "../models/Service.js";
 import BankDetail from "../models/BankDetail.js";
 import CalendarBlock from "../models/CalendarBlock.js";
-import mongoose from "mongoose";
+import mongoose from "../config/firestore.js";
 import { deleteFromCloudinary } from "../utils/cloudinary.js";
 import { createOrder, verifySignature } from "../utils/razorpay.js";
 import Commission from "../models/Commission.js";
@@ -222,6 +224,18 @@ export const verifyTicket = async (req, res) => {
       return res.status(403).json({ success: false, message: "You are not authorized to verify this ticket" });
     }
 
+    if (ticket.paymentStatus !== "paid") {
+      return res.status(400).json({
+        success: false,
+        message: "Ticket is unpaid / unsold. Please scan and sell this ticket before granting entry.",
+        ticket: {
+          id: ticket._id,
+          ticketNumber: ticket.qrPayload?.ticketNumber,
+          paymentStatus: ticket.paymentStatus || "unpaid"
+        }
+      });
+    }
+
     if (!ticket.isValide) {
       return res.status(400).json({ success: false, message: "Ticket is invalid" });
     }
@@ -302,46 +316,76 @@ export const verifyTicket = async (req, res) => {
 export const getTicketDataById = async (req, res) => {
   try {
     const userId = req.user?.id;
-    console.log(`[DEBUG] getTicketDataById - UserID: ${userId}`);
-
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
     // Determine planner context (Direct Owner or Employee)
     const plannerProfileId = await getPlannerIdForUser(userId);
-
     if (!plannerProfileId) {
-      console.warn(`[DEBUG] User is NOT a Planner or Employee. UserID: ${userId}`);
       return res.status(403).json({ message: "Access denied. Not a planner or employee." });
     }
-    console.log(`[DEBUG] Acting on behalf of Planner Profile: ${plannerProfileId}`);
 
     const { id } = req.params;
-    console.log(`[DEBUG] Requested Ticket ID: ${id}`);
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      console.warn(`[DEBUG] Invalid Ticket ID format: ${id}`);
-      return res.status(400).json({ success: false, message: "Invalid ticket ID format" });
+    if (!id) {
+      return res.status(400).json({ success: false, message: "Ticket identifier is required" });
     }
 
-    // Find ticket and populate event
-    const ticket = await Ticket.findById(id).select("-qrDataUrl -scanned")
-      .populate("eventId", "title startAt plannerProfileId")
-      .populate("ticketTypeId", "title price");
+    const trimmedId = id.trim();
+    let ticket = null;
+
+    if (mongoose.Types.ObjectId.isValid(trimmedId)) {
+      ticket = await Ticket.findById(trimmedId)
+        .populate("eventId", "title startAt endAt venue city plannerProfileId")
+        .populate("ticketTypeId", "title price allowedPersons");
+    }
 
     if (!ticket) {
-      console.warn(`[DEBUG] Ticket NOT FOUND for ID: ${id}`);
+      ticket = await Ticket.findOne({
+        $or: [
+          { "qrPayload.ticketNumber": trimmedId },
+          { "qrPayload.ticketId": trimmedId },
+          { "qrPayload.ticketNumber": { $regex: new RegExp(`^${trimmedId.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, "i") } }
+        ]
+      })
+        .populate("eventId", "title startAt endAt venue city plannerProfileId")
+        .populate("ticketTypeId", "title price allowedPersons");
+    }
+
+    if (!ticket) {
       return res.status(404).json({ success: false, message: "Ticket not found" });
     }
-    console.log(`[DEBUG] Ticket Found: ${ticket._id}, Event: ${ticket.eventId?._id}, Planner: ${ticket.eventId?.plannerProfileId}`);
 
     // Security check: Ensure event belongs to this planner context
     if (!ticket.eventId || ticket.eventId.plannerProfileId.toString() !== plannerProfileId.toString()) {
-      console.warn(`[DEBUG] ACCESS DENIED. Ticket Event Planner: ${ticket.eventId?.plannerProfileId}, User Linked Planner: ${plannerProfileId}`);
       return res.status(403).json({ success: false, message: "You are not authorized to view this ticket" });
     }
 
-    console.log(`[DEBUG] Access Granted. Returning Ticket.`);
-    return res.status(200).json({ success: true, ticket });
+    return res.status(200).json({
+      success: true,
+      ticket: {
+        _id: ticket._id,
+        id: ticket._id.toString(),
+        ticketId: ticket._id.toString(),
+        ticketNumber: ticket.qrPayload?.ticketNumber || `OFF-${ticket._id.toString().slice(-6).toUpperCase()}`,
+        eventId: ticket.eventId,
+        ticketTypeId: ticket.ticketTypeId,
+        buyerName: ticket.buyerName || "",
+        buyerPhone: ticket.buyerPhone || "",
+        buyerEmail: ticket.buyerEmail || "",
+        quantity: ticket.quantity || 1,
+        persons: ticket.persons || 1,
+        scannedPersons: ticket.scannedPersons || 0,
+        isValide: ticket.isValide,
+        scanned: ticket.scanned,
+        scannedAt: ticket.scannedAt,
+        paymentStatus: ticket.paymentStatus || "unpaid",
+        soldAt: ticket.soldAt,
+        soldByType: ticket.soldByType,
+        paymentMethod: ticket.paymentMethod,
+        isOffline: ticket.isOffline || ticket.qrPayload?.isOffline || false,
+        qrPayload: ticket.qrPayload,
+        createdAt: ticket.createdAt
+      }
+    });
 
   } catch (err) {
     console.error(`[DEBUG] Error in getTicketDataById: ${err.message}`, err);
@@ -782,14 +826,14 @@ export const getPlannerEvents = async (req, res) => {
     const plannerUserId = req.user?.id;
     if (!plannerUserId) return res.status(401).json({ success: false, message: "Unauthorized" });
 
-    const plannerProfile = await PlannerProfile.findOne({ userId: plannerUserId }).select("_id");
-    if (!plannerProfile) return res.status(404).json({ success: false, message: "Planner profile not found" });
+    const plannerProfileId = await getPlannerIdForUser(plannerUserId);
+    if (!plannerProfileId) return res.status(404).json({ success: false, message: "Planner profile not found" });
 
     // Import Event model if not already imported
     const Event = (await import("../models/Event.js")).default;
 
     // Get all events for this planner
-    const events = await Event.find({ plannerProfileId: plannerProfile._id })
+    const events = await Event.find({ plannerProfileId })
       .select("title _id startAt endAt published")
       .sort({ startAt: -1 }); // Sort by start date, newest first
 
@@ -1315,7 +1359,7 @@ export const createOfflineTicketsBatch = async (req, res) => {
 
     for (let i = 1; i <= batchCount; i++) {
       const ticketNumber = `OFF-${event.title.slice(0, 3).toUpperCase()}-${String(timestamp).slice(-4)}-${String(i).padStart(4, "0")}`;
-      const attendeeName = buyerName ? (batchCount > 1 ? `${buyerName} #${i}` : buyerName) : `Walk-in Guest #${i}`;
+      const attendeeName = buyerName ? (batchCount > 1 ? `${buyerName} #${i}` : buyerName) : "";
 
       const newTicket = new Ticket({
         ticketTypeId: ticketType?._id,
@@ -1326,9 +1370,10 @@ export const createOfflineTicketsBatch = async (req, res) => {
         quantity: 1,
         persons: allowedPerTicket,
         scannedPersons: 0,
-        isValide: true,
+        isValide: false, // Invalid until ticket is sold & paid
         scanned: false,
-        paymentStatus: "paid",
+        paymentStatus: "unpaid", // Unsold when generated
+        isOffline: true,
         issuedAt: new Date(),
       });
 
@@ -1338,6 +1383,7 @@ export const createOfflineTicketsBatch = async (req, res) => {
         buyerName: attendeeName,
         type: ticketType?.title || "General Admission",
         isOffline: true,
+        paymentStatus: "unpaid",
         ticketNumber,
         timestamp: Date.now()
       };
@@ -1360,7 +1406,8 @@ export const createOfflineTicketsBatch = async (req, res) => {
         buyerPhone: buyerPhone || "",
         persons: allowedPerTicket,
         scannedPersons: 0,
-        isValide: true,
+        isValide: false,
+        paymentStatus: "unpaid",
         scanned: false,
         createdAt: newTicket.createdAt.toISOString()
       });
@@ -1422,8 +1469,13 @@ export const listOfflineTickets = async (req, res) => {
       ticketTypeName: t.ticketTypeId?.title || "General Admission",
       ticketPrice: t.ticketTypeId?.price || 0,
       qrPayload: typeof t.qrPayload === "object" ? JSON.stringify(t.qrPayload) : (t.qrPayload || ""),
-      buyerName: t.buyerName || "Guest",
+      buyerName: t.buyerName || "",
       buyerPhone: t.buyerPhone || "",
+      buyerEmail: t.buyerEmail || "",
+      paymentStatus: t.paymentStatus || "unpaid",
+      soldAt: t.soldAt || null,
+      soldByType: t.soldByType || "",
+      paymentMethod: t.paymentMethod || "",
       persons: t.persons,
       scannedPersons: t.scannedPersons || 0,
       isValide: t.isValide,
@@ -1520,6 +1572,673 @@ export const deleteOfflineTicket = async (req, res) => {
     return res.status(200).json({ success: true, message: "Ticket deleted successfully" });
   } catch (err) {
     console.error("deleteOfflineTicket error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+// Export Offline Tickets as PDF (Multiple tickets per page layout)
+export const exportOfflineTicketsPdf = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const plannerProfileId = await getPlannerIdForUser(userId);
+    if (!plannerProfileId) {
+      return res.status(403).json({ success: false, message: "Unauthorized: Not a planner or active employee" });
+    }
+
+    // Parameters can come from query or body
+    const eventId = req.query.eventId || req.body?.eventId;
+    let ticketIds = req.query.ticketIds || req.body?.ticketIds;
+
+    if (typeof ticketIds === "string") {
+      ticketIds = ticketIds.split(",").map(id => id.trim()).filter(Boolean);
+    }
+
+    let eventIds = [];
+    if (eventId && mongoose.Types.ObjectId.isValid(eventId)) {
+      const event = await Event.findById(eventId);
+      if (event && event.plannerProfileId.toString() === plannerProfileId.toString()) {
+        eventIds = [event._id];
+      } else {
+        return res.status(403).json({ success: false, message: "Unauthorized for this event" });
+      }
+    } else {
+      const events = await Event.find({ plannerProfileId }).select("_id");
+      eventIds = events.map(e => e._id);
+    }
+
+    const filter = {
+      eventId: { $in: eventIds },
+      "qrPayload.isOffline": true,
+    };
+
+    if (ticketIds && Array.isArray(ticketIds) && ticketIds.length > 0) {
+      const validIds = ticketIds.filter(id => mongoose.Types.ObjectId.isValid(id));
+      if (validIds.length > 0) {
+        filter._id = { $in: validIds };
+      }
+    }
+
+    const tickets = await Ticket.find(filter)
+      .populate("ticketTypeId", "title price")
+      .populate("eventId", "title startAt venue city")
+      .sort({ createdAt: -1 });
+
+    if (!tickets || tickets.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No offline tickets found for export",
+      });
+    }
+
+    const formattedTickets = tickets.map(t => ({
+      ticketId: t._id.toString(),
+      ticketNumber: t.qrPayload?.ticketNumber || `OFF-${t._id.toString().slice(-6).toUpperCase()}`,
+      eventId: t.eventId?._id?.toString() || "",
+      eventTitle: t.eventId?.title || "Event",
+      eventDate: t.eventId?.startAt || t.issuedAt,
+      eventVenue: `${t.eventId?.venue || ""}${t.eventId?.city ? ", " + t.eventId.city : ""}`,
+      ticketTypeId: t.ticketTypeId?._id?.toString() || "",
+      ticketTypeName: t.ticketTypeId?.title || "General Admission",
+      ticketPrice: t.ticketTypeId?.price || 0,
+      qrPayload: typeof t.qrPayload === "object" ? JSON.stringify(t.qrPayload) : (t.qrPayload || t._id.toString()),
+      buyerName: t.buyerName || "Guest",
+      buyerPhone: t.buyerPhone || "",
+      persons: t.persons || 1,
+      scannedPersons: t.scannedPersons || 0,
+      isValide: t.isValide,
+      createdAt: t.createdAt,
+    }));
+
+    // Configure response headers for binary PDF download
+    const filename = `BrookShow-Offline-Tickets-${Date.now()}.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+    // Stream PDF directly to client response
+    const pdfDoc = await generateTicketsPdfStream(formattedTickets);
+    pdfDoc.pipe(res);
+  } catch (err) {
+    console.error("exportOfflineTicketsPdf error:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+};
+
+
+// ==================== OFFLINE TICKET SELLING & PAYMENT ====================
+
+// Initiate sale of an offline ticket (generates Razorpay order or prepares free sale)
+export const initiateOfflineTicketSale = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const plannerProfileId = await getPlannerIdForUser(userId);
+    if (!plannerProfileId) {
+      return res.status(403).json({ success: false, message: "Unauthorized: Not a planner or active employee" });
+    }
+
+    const { id } = req.params;
+    const { customerName, customerPhone, customerEmail } = req.body;
+
+    if (!customerName || !customerName.trim()) {
+      return res.status(400).json({ success: false, message: "Customer name is required" });
+    }
+    if (!customerPhone || !customerPhone.trim()) {
+      return res.status(400).json({ success: false, message: "Customer phone is required" });
+    }
+
+    const trimmedId = id.trim();
+    let ticket = null;
+
+    if (mongoose.Types.ObjectId.isValid(trimmedId)) {
+      ticket = await Ticket.findById(trimmedId).populate("ticketTypeId").populate("eventId");
+    }
+    if (!ticket) {
+      ticket = await Ticket.findOne({
+        $or: [
+          { "qrPayload.ticketNumber": trimmedId },
+          { "qrPayload.ticketId": trimmedId },
+          { "qrPayload.ticketNumber": { $regex: new RegExp(`^${trimmedId.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, "i") } }
+        ]
+      }).populate("ticketTypeId").populate("eventId");
+    }
+
+    if (!ticket) {
+      return res.status(404).json({ success: false, message: "Ticket not found" });
+    }
+
+    // Authorization check
+    if (!ticket.eventId || ticket.eventId.plannerProfileId.toString() !== plannerProfileId.toString()) {
+      return res.status(403).json({ success: false, message: "Unauthorized to sell tickets for this event" });
+    }
+
+    // Check if already paid
+    if (ticket.paymentStatus === "paid") {
+      return res.status(400).json({
+        success: false,
+        message: `Ticket has already been sold to ${ticket.buyerName || "another customer"} on ${new Date(ticket.soldAt || ticket.updatedAt).toLocaleDateString()}`
+      });
+    }
+
+    const price = Number(ticket.ticketTypeId?.price || 0);
+
+    // Fetch offline commission / platform charges setting (paid by customer)
+    const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
+    const offlineCommissionPercent = commissionSettings 
+      ? (typeof commissionSettings.offlineTicketCommission === "number" ? commissionSettings.offlineTicketCommission : (commissionSettings.ticketSellCommission || 0))
+      : 0;
+    const platformFeeAmount = Number(((price * offlineCommissionPercent) / 100).toFixed(2));
+    const totalCustomerAmount = Number((price + platformFeeAmount).toFixed(2));
+    const plannerNetCredit = price; // Planner receives 100% of ticket base price
+
+    // If price is 0 (free pass), directly mark it ready
+    if (price <= 0) {
+      return res.status(200).json({
+        success: true,
+        isFree: true,
+        amount: 0,
+        commission: {
+          percent: 0,
+          amount: 0,
+          netCredit: 0
+        },
+        pricing: {
+          basePrice: 0,
+          platformFeePercent: 0,
+          platformFee: 0,
+          totalAmount: 0,
+          plannerNetCredit: 0
+        },
+        ticket: {
+          id: ticket._id.toString(),
+          ticketNumber: ticket.qrPayload?.ticketNumber || `OFF-${ticket._id.toString().slice(-6).toUpperCase()}`,
+          eventTitle: ticket.eventId?.title,
+          ticketTypeName: ticket.ticketTypeId?.title || "General Admission",
+          price: 0
+        }
+      });
+    }
+
+    // Create Razorpay Order for the total amount (Base Ticket Price + Platform Charges)
+    const razorpayOrder = await createOrder(totalCustomerAmount, ticket._id.toString());
+
+    ticket.razorpayOrderId = razorpayOrder.id;
+    ticket.buyerName = customerName.trim();
+    ticket.buyerPhone = customerPhone.trim();
+    if (customerEmail) ticket.buyerEmail = customerEmail.trim();
+    await ticket.save();
+
+    return res.status(200).json({
+      success: true,
+      ticketId: ticket._id.toString(),
+      ticketNumber: ticket.qrPayload?.ticketNumber || `OFF-${ticket._id.toString().slice(-6).toUpperCase()}`,
+      amount: totalCustomerAmount,
+      currency: "INR",
+      pricing: {
+        basePrice: price,
+        platformFeePercent: offlineCommissionPercent,
+        platformFee: platformFeeAmount,
+        totalAmount: totalCustomerAmount,
+        plannerNetCredit: price
+      },
+      commission: {
+        percent: offlineCommissionPercent,
+        amount: platformFeeAmount,
+        netCredit: plannerNetCredit
+      },
+      razorpayOrder: {
+        id: razorpayOrder.id,
+        amount: razorpayOrder.amount, // in paise: totalCustomerAmount * 100
+        currency: razorpayOrder.currency
+      },
+      keyId: process.env.RAZORPAY_KEY_ID || "rzp_test_SDgwHZdeZvhHnl",
+      ticket: {
+        id: ticket._id.toString(),
+        ticketNumber: ticket.qrPayload?.ticketNumber || `OFF-${ticket._id.toString().slice(-6).toUpperCase()}`,
+        eventTitle: ticket.eventId?.title,
+        ticketTypeName: ticket.ticketTypeId?.title || "General Admission",
+        price,
+        platformFeePercent: offlineCommissionPercent,
+        platformFee: platformFeeAmount,
+        totalAmount: totalCustomerAmount,
+        netCredit: plannerNetCredit
+      }
+    });
+
+  } catch (err) {
+    console.error("initiateOfflineTicketSale error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Verify payment and finalize offline ticket sale
+export const verifyOfflineTicketSale = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const plannerProfileId = await getPlannerIdForUser(userId);
+    if (!plannerProfileId) {
+      return res.status(403).json({ success: false, message: "Unauthorized: Not a planner or active employee" });
+    }
+
+    const { id } = req.params;
+    const {
+      customerName,
+      customerPhone,
+      customerEmail,
+      paymentMethod = "razorpay",
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature
+    } = req.body;
+
+    const trimmedId = id.trim();
+    let ticket = null;
+
+    if (mongoose.Types.ObjectId.isValid(trimmedId)) {
+      ticket = await Ticket.findById(trimmedId).populate("ticketTypeId").populate("eventId");
+    }
+    if (!ticket) {
+      ticket = await Ticket.findOne({
+        $or: [
+          { "qrPayload.ticketNumber": trimmedId },
+          { "qrPayload.ticketId": trimmedId },
+          { razorpayOrderId: razorpay_order_id },
+          { "qrPayload.ticketNumber": { $regex: new RegExp(`^${trimmedId.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, "i") } }
+        ]
+      }).populate("ticketTypeId").populate("eventId");
+    }
+
+    if (!ticket) {
+      return res.status(404).json({ success: false, message: "Ticket not found" });
+    }
+
+    if (!ticket.eventId || ticket.eventId.plannerProfileId.toString() !== plannerProfileId.toString()) {
+      return res.status(403).json({ success: false, message: "Unauthorized for this ticket" });
+    }
+
+    if (ticket.paymentStatus === "paid") {
+      return res.status(200).json({
+        success: true,
+        message: "Ticket is already marked as paid and sold",
+        ticket
+      });
+    }
+
+    const price = Number(ticket.ticketTypeId?.price || 0);
+
+    // Verify Razorpay signature if paying with razorpay and price > 0
+    if (paymentMethod === "razorpay" && price > 0) {
+      if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+        return res.status(400).json({ success: false, message: "Missing Razorpay payment details" });
+      }
+
+      const isVerified = verifySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+      if (!isVerified) {
+        return res.status(400).json({ success: false, message: "Payment verification failed: invalid signature" });
+      }
+    }
+
+    // Determine who sold it: employee or planner
+    const employee = await PlannerEmployee.findOne({ employeeId: userId, isActive: true });
+
+    // Update Ticket
+    ticket.paymentStatus = "paid";
+    ticket.isValide = true;
+    ticket.buyerName = (customerName || ticket.buyerName || "Walk-in Guest").trim();
+    ticket.buyerPhone = (customerPhone || ticket.buyerPhone || "").trim();
+    if (customerEmail) ticket.buyerEmail = customerEmail.trim();
+
+    ticket.soldAt = new Date();
+    ticket.soldBy = userId;
+    ticket.soldByType = employee ? "employee" : "planner";
+    ticket.paymentMethod = paymentMethod;
+
+    if (razorpay_order_id) ticket.razorpayOrderId = razorpay_order_id;
+    if (razorpay_payment_id) ticket.razorpayPaymentId = razorpay_payment_id;
+    if (razorpay_signature) ticket.razorpaySignature = razorpay_signature;
+
+    // Update QR Payload with updated customer info
+    const updatedQrPayload = {
+      ticketId: ticket._id.toString(),
+      eventId: ticket.eventId._id.toString(),
+      buyerName: ticket.buyerName,
+      buyerPhone: ticket.buyerPhone,
+      type: ticket.ticketTypeId?.title || "General Admission",
+      isOffline: true,
+      paymentStatus: "paid",
+      isSold: true,
+      soldAt: ticket.soldAt,
+      ticketNumber: ticket.qrPayload?.ticketNumber || `OFF-${ticket._id.toString().slice(-6).toUpperCase()}`,
+      timestamp: Date.now()
+    };
+    ticket.qrPayload = updatedQrPayload;
+
+    try {
+      ticket.qrDataUrl = await QRCode.toDataURL(JSON.stringify(updatedQrPayload));
+    } catch (qrErr) {
+      console.warn("Failed to generate updated QR data URL:", qrErr);
+    }
+
+    await ticket.save();
+
+    // Increment TicketType sold count
+    if (ticket.ticketTypeId) {
+      await TicketType.findByIdAndUpdate(ticket.ticketTypeId._id, { $inc: { sold: 1 } });
+    }
+
+    // Ledger accounting for Planner Wallet & Admin Commission / Platform Charges
+    const plannerProfile = await PlannerProfile.findById(ticket.eventId.plannerProfileId);
+    let ticketCommissionPercent = 0;
+    let ticketCommissionAmount = 0;
+    let plannerNetCredit = price;
+    let totalCustomerAmount = price;
+
+    if (plannerProfile && price > 0) {
+      const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
+      ticketCommissionPercent = commissionSettings 
+        ? (typeof commissionSettings.offlineTicketCommission === "number" ? commissionSettings.offlineTicketCommission : (commissionSettings.ticketSellCommission || 0))
+        : 0;
+      ticketCommissionAmount = Number(((price * ticketCommissionPercent) / 100).toFixed(2));
+      totalCustomerAmount = Number((price + ticketCommissionAmount).toFixed(2));
+      plannerNetCredit = price; // Planner receives 100% of ticket base price
+
+      ticket.commissionAmount = ticketCommissionAmount;
+      await ticket.save();
+
+      if (paymentMethod === "razorpay") {
+        // Customer paid totalCustomerAmount (Base Ticket Price + Platform Charges) via gateway.
+        // Admin keeps the platform charges (ticketCommissionAmount).
+        // Planner's wallet is credited with 100% of ticket base price (price).
+        plannerProfile.walletBalance = (plannerProfile.walletBalance || 0) + price;
+        await plannerProfile.save();
+
+        await WalletTransaction.create({
+          ownerId: plannerProfile._id,
+          ownerType: "planner",
+          type: "credit",
+          amount: price,
+          source: "booking",
+          referenceId: ticket._id.toString(),
+          description: `Offline ticket sold via Gateway (Razorpay) for ${ticket.eventId.title} - Serial: ${ticket.qrPayload?.ticketNumber || ticket._id}. Total Paid: ₹${totalCustomerAmount} (Ticket: ₹${price}, Platform Fee: ₹${ticketCommissionAmount}). Planner Credit: ₹${price}`,
+          status: "completed"
+        });
+      } else if (paymentMethod === "cash") {
+        // Customer paid physical cash of totalCustomerAmount (Ticket Price + Platform Fee) to planner.
+        // Planner keeps full cash in hand.
+        // The customer-paid platform fee (ticketCommissionAmount) is debited from planner's wallet to BrookShow.
+        if (ticketCommissionAmount > 0) {
+          plannerProfile.walletBalance = (plannerProfile.walletBalance || 0) - ticketCommissionAmount;
+          await plannerProfile.save();
+
+          await WalletTransaction.create({
+            ownerId: plannerProfile._id,
+            ownerType: "planner",
+            type: "debit",
+            amount: ticketCommissionAmount,
+            source: "booking",
+            referenceId: ticket._id.toString(),
+            description: `Platform charges deduction for offline cash ticket sale (${ticket.eventId.title} - Serial: ${ticket.qrPayload?.ticketNumber || ticket._id}). Cash collected from customer: ₹${totalCustomerAmount} (Ticket: ₹${price}, Platform Charges: ₹${ticketCommissionAmount})`,
+            status: "completed"
+          });
+        }
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Offline ticket successfully sold to ${ticket.buyerName}!`,
+      ticket: {
+        ticketId: ticket._id.toString(),
+        ticketNumber: ticket.qrPayload?.ticketNumber || `OFF-${ticket._id.toString().slice(-6).toUpperCase()}`,
+        eventId: ticket.eventId._id.toString(),
+        eventTitle: ticket.eventId.title,
+        ticketTypeName: ticket.ticketTypeId?.title || "General Admission",
+        ticketPrice: price,
+        basePrice: price,
+        commissionPercent: ticketCommissionPercent,
+        commissionAmount: ticketCommissionAmount,
+        platformFee: ticketCommissionAmount,
+        totalAmount: totalCustomerAmount,
+        netCredit: plannerNetCredit,
+        buyerName: ticket.buyerName,
+        buyerPhone: ticket.buyerPhone,
+        buyerEmail: ticket.buyerEmail,
+        paymentStatus: "paid",
+        isValide: true,
+        soldAt: ticket.soldAt,
+        soldByType: ticket.soldByType,
+        paymentMethod: ticket.paymentMethod
+      }
+    });
+
+  } catch (err) {
+    console.error("verifyOfflineTicketSale error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Direct Instant Sale (Issue and Sell Offline Ticket on the Spot)
+export const sellOfflineTicketDirect = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const plannerProfileId = await getPlannerIdForUser(userId);
+    if (!plannerProfileId) {
+      return res.status(403).json({ success: false, message: "Unauthorized: Not a planner or active employee" });
+    }
+
+    const {
+      eventId,
+      ticketTypeId,
+      customerName,
+      customerPhone,
+      customerEmail,
+      paymentMethod = "cash",
+      quantity = 1
+    } = req.body;
+
+    if (!eventId || !mongoose.Types.ObjectId.isValid(eventId)) {
+      return res.status(400).json({ success: false, message: "Valid Event ID is required" });
+    }
+    if (!customerName || !customerName.trim()) {
+      return res.status(400).json({ success: false, message: "Customer name is required" });
+    }
+    if (!customerPhone || !customerPhone.trim()) {
+      return res.status(400).json({ success: false, message: "Customer phone is required" });
+    }
+
+    const event = await Event.findById(eventId);
+    if (!event) return res.status(404).json({ success: false, message: "Event not found" });
+    if (event.plannerProfileId.toString() !== plannerProfileId.toString()) {
+      return res.status(403).json({ success: false, message: "Unauthorized for this event" });
+    }
+
+    let ticketType = null;
+    if (ticketTypeId && mongoose.Types.ObjectId.isValid(ticketTypeId)) {
+      ticketType = await TicketType.findById(ticketTypeId);
+    }
+    if (!ticketType) {
+      ticketType = await TicketType.findOne({ eventId });
+    }
+
+    const price = Number(ticketType?.price || 0);
+    const allowedPersons = ticketType?.allowedPersons || 1;
+
+    // Commission / Platform Charges calculation
+    const commissionSettings = await Commission.findOne().sort({ createdAt: -1 });
+    const offlineCommissionPercent = commissionSettings 
+      ? (typeof commissionSettings.offlineTicketCommission === "number" ? commissionSettings.offlineTicketCommission : (commissionSettings.ticketSellCommission || 0))
+      : 0;
+    const platformFeeAmount = Number(((price * offlineCommissionPercent) / 100).toFixed(2));
+    const totalCustomerAmount = Number((price + platformFeeAmount).toFixed(2));
+    const plannerNetCredit = price;
+
+    const timestamp = Date.now();
+    const ticketNumber = `OFF-${event.title.slice(0, 3).toUpperCase()}-${String(timestamp).slice(-4)}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const newTicket = new Ticket({
+      ticketTypeId: ticketType?._id,
+      eventId: event._id,
+      userId,
+      buyerName: customerName.trim(),
+      buyerPhone: customerPhone.trim(),
+      buyerEmail: customerEmail ? customerEmail.trim() : "",
+      quantity: 1,
+      persons: allowedPersons,
+      scannedPersons: 0,
+      isValide: paymentMethod === "cash" || price === 0,
+      paymentStatus: paymentMethod === "cash" || price === 0 ? "paid" : "unpaid",
+      scanned: false,
+      isOffline: true,
+      soldAt: paymentMethod === "cash" || price === 0 ? new Date() : null,
+      soldBy: userId,
+      soldByType: req.user?.role === "employee" ? "employee" : "planner",
+      paymentMethod,
+      commissionAmount: platformFeeAmount
+    });
+
+    const qrPayload = {
+      ticketId: newTicket._id.toString(),
+      eventId: event._id.toString(),
+      buyerName: newTicket.buyerName,
+      buyerPhone: newTicket.buyerPhone,
+      type: ticketType?.title || "General Admission",
+      isOffline: true,
+      paymentStatus: newTicket.paymentStatus,
+      ticketNumber,
+      timestamp
+    };
+    newTicket.qrPayload = qrPayload;
+
+    try {
+      newTicket.qrDataUrl = await QRCode.toDataURL(JSON.stringify(qrPayload));
+    } catch (e) {
+      console.warn("QR code generation warning:", e);
+    }
+
+    // Cash / Free: Activate immediately
+    if (paymentMethod === "cash" || price === 0) {
+      await newTicket.save();
+
+      if (ticketType) {
+        await TicketType.findByIdAndUpdate(ticketType._id, { $inc: { sold: 1 } });
+      }
+
+      const plannerProfile = await PlannerProfile.findById(event.plannerProfileId);
+      if (plannerProfile && price > 0) {
+        plannerProfile.walletBalance = (plannerProfile.walletBalance || 0) + price;
+        await plannerProfile.save();
+
+        await WalletTransaction.create({
+          ownerId: plannerProfile._id,
+          ownerType: "planner",
+          amount: price,
+          type: "credit",
+          status: "completed",
+          referenceId: newTicket._id.toString(),
+          referenceModel: "Ticket",
+          description: `Offline Ticket Sold (Cash) - ${newTicket.buyerName} [${ticketNumber}]`
+        });
+      }
+
+      return res.status(201).json({
+        success: true,
+        message: "Offline ticket sold successfully via Cash",
+        pricing: {
+          basePrice: price,
+          platformFeePercent: offlineCommissionPercent,
+          platformFee: platformFeeAmount,
+          totalAmount: totalCustomerAmount,
+          plannerNetCredit
+        },
+        ticket: {
+          _id: newTicket._id.toString(),
+          id: newTicket._id.toString(),
+          ticketId: newTicket._id.toString(),
+          ticketNumber,
+          eventId: {
+            _id: event._id.toString(),
+            title: event.title,
+            venue: event.venue,
+            city: event.city
+          },
+          ticketTypeId: ticketType ? {
+            _id: ticketType._id.toString(),
+            title: ticketType.title,
+            price: ticketType.price,
+            allowedPersons: ticketType.allowedPersons
+          } : null,
+          buyerName: newTicket.buyerName,
+          buyerPhone: newTicket.buyerPhone,
+          buyerEmail: newTicket.buyerEmail,
+          paymentStatus: "paid",
+          isValide: true,
+          soldAt: newTicket.soldAt,
+          soldByType: newTicket.soldByType,
+          paymentMethod: "cash",
+          qrDataUrl: newTicket.qrDataUrl
+        }
+      });
+    }
+
+    // Razorpay flow:
+    const razorpayOrder = await createOrder(totalCustomerAmount, newTicket._id.toString());
+    newTicket.razorpayOrderId = razorpayOrder.id;
+    await newTicket.save();
+
+    return res.status(200).json({
+      success: true,
+      ticketId: newTicket._id.toString(),
+      ticketNumber,
+      amount: totalCustomerAmount,
+      pricing: {
+        basePrice: price,
+        platformFeePercent: offlineCommissionPercent,
+        platformFee: platformFeeAmount,
+        totalAmount: totalCustomerAmount,
+        plannerNetCredit
+      },
+      razorpayOrder: {
+        id: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency
+      },
+      keyId: process.env.RAZORPAY_KEY_ID || "rzp_test_SDgwHZdeZvhHnl",
+      ticket: {
+        _id: newTicket._id.toString(),
+        id: newTicket._id.toString(),
+        ticketId: newTicket._id.toString(),
+        ticketNumber,
+        eventId: {
+          _id: event._id.toString(),
+          title: event.title,
+          venue: event.venue,
+          city: event.city
+        },
+        ticketTypeId: ticketType ? {
+          _id: ticketType._id.toString(),
+          title: ticketType.title,
+          price: ticketType.price,
+          allowedPersons: ticketType.allowedPersons
+        } : null,
+        buyerName: newTicket.buyerName,
+        buyerPhone: newTicket.buyerPhone,
+        buyerEmail: newTicket.buyerEmail,
+        paymentStatus: "unpaid",
+        isValide: false,
+        qrDataUrl: newTicket.qrDataUrl
+      }
+    });
+  } catch (err) {
+    console.error("sellOfflineTicketDirect error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };

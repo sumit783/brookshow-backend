@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+import mongoose from "../config/firestore.js";
 import { ENV } from '../config/env.js';
 import User from '../models/User.js';
 import ArtistProfile from '../models/ArtistProfile.js';

@@ -1,10 +1,19 @@
 import TicketType from "../models/TicketType.js";
 import Event from "../models/Event.js";
 import PlannerProfile from "../models/PlannerProfile.js";
+import PlannerEmployee from "../models/PlannerEmployee.js";
 
 async function getPlannerProfileIdForUser(userId) {
   const profile = await PlannerProfile.findOne({ userId }).select("_id");
-  return profile?._id || null;
+  if (profile) return profile._id;
+
+  const employee = await PlannerEmployee.findOne({
+    employeeId: userId,
+    $or: [{ isActive: true }, { isActive: { $exists: false } }]
+  }).select("plannerProfileId");
+  if (employee) return employee.plannerProfileId;
+
+  return null;
 }
 
 async function verifyEventOwnership(eventId, plannerProfileId) {

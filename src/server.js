@@ -1,34 +1,18 @@
 // src/server.js
 import http from "http";
 import dotenv from "dotenv";
-import dns from "dns";
 import app from "./app.js";
-import mongoose from "mongoose";
+import { connectDB } from "./config/db.js";
 import { dropLegacyArtistIndexes } from "./models/Artist.js";
 import { initCronJobs } from "./utils/cronJobs.js";
 
-// Ensure Node.js resolves MongoDB Atlas SRV records correctly on Windows / local ISP DNS
-dns.setServers(["8.8.8.8", "1.1.1.1", "8.8.4.4"]);
-
 dotenv.config();
 
-const PORT = process.env.PORT;
-const MONGO_URI = process.env.MONGO_URI;
-const DB_NAME = process.env.DB_NAME;
+const PORT = process.env.PORT || 5000;
 
 async function startServer() {
   try {
-    await mongoose.connect(MONGO_URI, {
-      dbName: DB_NAME,
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 30000, // Wait 30s before failing
-      socketTimeoutMS: 45000,       // Close sockets after 45s of inactivity
-      connectTimeoutMS: 30000,      // Give up initial connection after 30s
-      heartbeatFrequencyMS: 10000,  // Check server status every 10s
-    });
-
-    console.log(`MongoDB connected to database: ${DB_NAME}`);
+    await connectDB();
 
     await dropLegacyArtistIndexes();
     initCronJobs();
@@ -44,7 +28,7 @@ async function startServer() {
       console.log(`Server running on port ${PORT}`);
     });
   } catch (err) {
-    console.error("MongoDB connection error:", err.message);
+    console.error("Server startup error:", err.message);
     process.exit(1);
   }
 }

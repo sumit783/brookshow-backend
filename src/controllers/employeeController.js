@@ -1,7 +1,7 @@
 import PlannerProfile from "../models/PlannerProfile.js";
 import User from "../models/User.js";
 import PlannerEmployee from "../models/PlannerEmployee.js";
-import mongoose from "mongoose";
+import mongoose from "../config/firestore.js";
 
 export const createEmployee = async (req, res) => {
     try {
